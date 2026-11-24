@@ -133,6 +133,9 @@ button:focus-visible, .opt:focus-visible { outline: 3px solid var(--omr); outlin
 .qrate { margin: -6px 0 0; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .qrate b { color: var(--ink); font-family: var(--font-mono); }
 .qrate .lv { font-weight: 700; color: var(--omr); }
+.qexp { margin: 0; padding: 10px 14px; border-left: 3px solid var(--omr); background: var(--omr-soft); border-radius: 0 4px 4px 0; font-size: 15px; line-height: 1.65; word-break: keep-all; }
+.qexp b { color: var(--omr); margin-right: 6px; }
+.rv .exp { font-size: 14px; color: var(--muted); line-height: 1.6; word-break: keep-all; }
 .qfoot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tally { font-family: var(--font-mono); font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tally b { color: var(--ink); }
@@ -233,6 +236,7 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
       </div>
       <div class="opts" id="q-opts" role="group" aria-label="보기"></div>
       <p class="qrate" id="q-rate" aria-live="polite" hidden></p>
+      <p class="qexp" id="q-exp" hidden></p>
       <div class="qfoot">
         <span class="tally" id="q-tally">맞힌 문항 <b>0</b> / 0</span>
         <div class="actions">
@@ -341,7 +345,7 @@ var EMBEDDED = window.QUIZ_BANK;
       return {
         id: id, cat: DB.c[r[0]], text: r[1], ans: order.indexOf(0), order: order,
         opts: order.map(function (k) { return r[2 + k]; }),
-        key: STATS ? STATS.qkey(r) : null, n: null
+        key: STATS ? STATS.qkey(r) : null, n: null, exp: r[6] || ""
       };
     });
   }
@@ -402,6 +406,7 @@ var EMBEDDED = window.QUIZ_BANK;
       box.appendChild(b);
     });
     $("q-rate").hidden = true; $("q-rate").textContent = "";
+    $("q-exp").hidden = true; $("q-exp").textContent = "";
     var next = $("b-next"); next.disabled = true;
     next.textContent = idx === round.length - 1 ? "결과 보기" : "다음 문제";
     updateTally();
@@ -420,6 +425,7 @@ var EMBEDDED = window.QUIZ_BANK;
     $("q-strip").children[idx].classList.add(i === q.ans ? "ok" : "no");
     var next = $("b-next"); next.disabled = false; next.focus({ preventScroll: true });
     updateTally();
+    if (q.exp) { var ex = $("q-exp"); ex.textContent = ""; ex.append(el("b", null, "해설"), q.exp); ex.hidden = false; }
     crowd(q, i);
   }
 
@@ -541,7 +547,9 @@ var EMBEDDED = window.QUIZ_BANK;
       var a = el("div", "ans");
       if (!ok) a.appendChild(el("span", "m", "내 답: " + q.opts[picks[i]]));
       a.appendChild(el("span", "c", "정답: " + q.opts[q.ans]));
-      d.appendChild(a); rv.appendChild(d);
+      d.appendChild(a);
+      if (q.exp) d.appendChild(el("div", "exp", q.exp));
+      rv.appendChild(d);
     });
 
     var wrongIds = round.filter(function (q, i) { return picks[i] !== q.ans; }).map(function (q) { return q.id; });

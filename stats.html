@@ -205,6 +205,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 .qs-o.ok .lab i { background: var(--good); opacity: .2; }
 .qs-o b { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); }
 .qs-o.ok b { color: var(--good); }
+.qs-exp { font-size: 13px; color: var(--muted); line-height: 1.6; word-break: keep-all; }
 </style>
 </head>
 <body>
@@ -370,6 +371,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
         row.appendChild(lab); row.appendChild(b); opts.appendChild(row);
       });
     d.appendChild(opts);
+    if (it.row[6]) { var ex = document.createElement("div"); ex.className = "qs-exp"; ex.textContent = "해설 · " + it.row[6]; d.appendChild(ex); }
     return d;
   }
   function renderQS(reset) {
