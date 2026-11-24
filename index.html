@@ -560,12 +560,13 @@ var EMBEDDED = window.QUIZ_BANK;
     box.hidden = false;
     $("r-top").textContent = "순위 계산 중";
     $("r-ranksub").textContent = ""; $("r-hist").textContent = ""; $("r-note").textContent = "";
-    STATS.submit(right, Math.round(elapsed / 1000))
-      .then(function (st) { renderRank(st, right, true); })
+    var secs = Math.round(elapsed / 1000);
+    STATS.submit(right, secs)
+      .then(function (st) { renderRank(st, right, st && st.rank, secs, true); })
       .catch(function (err) {
         // 제출이 거절돼도 현재 통계 기준 순위는 보여 줍니다.
-        return STATS.stats().then(function (st) {
-          renderRank(st, right, false);
+        return Promise.all([STATS.stats(), STATS.rankOf(right, secs).catch(function () { return null; })]).then(function (res) {
+          renderRank(res[0], right, res[1], secs, false);
           $("r-note").textContent = "이번 기록은 저장되지 않았습니다 (" + err.message + "). 순위는 기존 기록 기준입니다.";
         });
       })
@@ -575,18 +576,27 @@ var EMBEDDED = window.QUIZ_BANK;
       });
   }
 
-  function renderRank(st, score, saved) {
+  // 순위: 점수가 높을수록, 같은 점수면 빨리 푼 기록일수록 앞
+  function renderRank(st, score, rk, secs, saved) {
     var dist = (st && st.dist) || [];
-    var r = STATS.rank(dist, score);
+    var r = STATS.rank(dist, score), ko = function (n) { return Number(n).toLocaleString("ko-KR"); };
+    var line = null;
+    if (rk && rk.total != null) {
+      var me = saved ? 0 : 1;                       // 저장되지 않았으면 내 기록을 더해서 계산
+      var total = rk.total + me, same = rk.same + me, pos = rk.faster + 1;
+      r = { total: total, rank: rk.higher + pos, top: (rk.higher + pos) / total * 100 };
+      line = "누적 " + ko(total) + "회 응시 중 " + ko(r.rank) + "등"
+        + (same > 1 ? " · 같은 " + score + "점 " + ko(same) + "회 중 " + ko(pos) + "번째로 빠름 (" + fmtTime(secs * 1000) + ")" : "");
+    }
     var top = $("r-top"); top.textContent = "";
     if (!r.total) { top.textContent = "아직 응시 기록이 없습니다"; return; }
     top.append("상위 ", el("b", null, STATS.fmtTop(r.top) + "%"));
-    $("r-ranksub").textContent = "누적 " + r.total.toLocaleString("ko-KR") + "회 응시 중 " + r.rank.toLocaleString("ko-KR") + "등"
-      + (r.tie > 1 ? " (동점 " + r.tie.toLocaleString("ko-KR") + "회)" : "")
+    $("r-ranksub").textContent = (line || ("누적 " + ko(r.total) + "회 응시 중 " + ko(r.rank) + "등"
+      + (r.tie > 1 ? " (동점 " + ko(r.tie) + "회)" : "")))
       + " · 전체 평균 " + Number(st.avg).toFixed(1) + "점";
     STATS.histogram($("r-hist"), dist, score);
     var note = r.total < 30 ? "아직 응시 기록이 적어 순위가 크게 바뀔 수 있습니다. " : "";
-    note += "매번 다른 문항이 나오므로 대략적인 비교로 봐 주세요. ";
+    note += "같은 점수면 더 빨리 푼 기록이 앞 순위입니다. 매번 다른 문항이 나오므로 대략적인 비교로 봐 주세요. ";
     var a = el("a", "link", "전체 통계 보기"); a.href = "stats.html";
     $("r-note").textContent = note; $("r-note").appendChild(a);
   }

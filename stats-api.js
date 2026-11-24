@@ -81,6 +81,7 @@
     qkey: qkey,
     rate: rate,
     answer: function (key, choice) { return call("record_answer", { p_key: key, p_choice: choice }); },
-    questionStats: function () { return call("question_stats_all"); }
+    questionStats: function () { return call("question_stats_all"); },
+    rankOf: function (score, seconds) { return call("score_rank", { p_score: score, p_seconds: seconds }); }
   };
 })();
