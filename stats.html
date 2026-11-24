@@ -184,6 +184,27 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 .tbl tr.empty td { color: var(--muted); }
 .tbl .meter { display: inline-block; height: 8px; background: var(--omr); border-radius: 2px; vertical-align: middle; margin-right: 8px; opacity: .75; }
 .updated { font-size: 13px; color: var(--muted); }
+/* 문항별 정답률 */
+.qs-ctrl { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.qs-ctrl select, .qs-ctrl input[type=search] { font: inherit; font-size: 14px; color: var(--ink); background: var(--sheet); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; }
+.qs-ctrl input[type=search] { flex: 1 1 180px; min-width: 0; }
+.qs-ctrl label { font-size: 14px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.qs-list { display: grid; gap: 10px; }
+.qs { border: 1px solid var(--line); border-radius: 5px; padding: 12px 14px; display: grid; gap: 8px; }
+.qs-top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.qs-top .rt { margin-left: auto; font-family: var(--font-mono); font-weight: 600; font-size: 15px; color: var(--ink); }
+.qs-top .rt.hard { color: var(--bad); }
+.qs-top .rt.easy { color: var(--good); }
+.qs-q { font-family: var(--font-display); font-weight: 700; word-break: keep-all; line-height: 1.5; }
+.qs-opts { display: grid; gap: 4px; }
+.qs-o { display: grid; grid-template-columns: minmax(0, 1fr) 46px; gap: 10px; align-items: center; font-size: 14px; }
+.qs-o .lab { position: relative; padding: 3px 8px; border-radius: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.qs-o .lab i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); opacity: .08; border-radius: 3px; }
+.qs-o .lab span { position: relative; }
+.qs-o.ok .lab { color: var(--good); font-weight: 700; }
+.qs-o.ok .lab i { background: var(--good); opacity: .2; }
+.qs-o b { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); }
+.qs-o.ok b { color: var(--good); }
 </style>
 </head>
 <body>
@@ -221,11 +242,35 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
       </div>
     </div>
   </section>
-  <p class="foot">퀴즈를 끝까지 푼 기록만 집계합니다 · 오답 재도전은 제외 · 점수와 소요 시간 외에는 저장하지 않습니다</p>
+  <section class="sheet" id="qs-sec">
+    <div class="sheet-body">
+      <div class="actions" style="justify-content: space-between;">
+        <h2>문항별 정답률</h2>
+        <span class="updated" id="qs-sum">불러오는 중</span>
+      </div>
+      <div class="qs-ctrl">
+        <select id="qs-cat" aria-label="분야"><option value="">전체 분야</option></select>
+        <select id="qs-sort" aria-label="정렬">
+          <option value="hard">정답률 낮은 순</option>
+          <option value="easy">정답률 높은 순</option>
+          <option value="many">응답 많은 순</option>
+          <option value="no">문항 번호 순</option>
+        </select>
+        <input type="search" id="qs-find" placeholder="문제·보기 검색" aria-label="문제·보기 검색">
+        <label><input type="checkbox" id="qs-only" checked> 응답 있는 문항만</label>
+      </div>
+      <div class="qs-list" id="qs-list"></div>
+      <p class="hint" id="qs-msg"></p>
+      <div class="actions"><button class="btn ghost" id="qs-more" hidden>더 보기</button></div>
+    </div>
+  </section>
+  <p class="foot">문항별 정답률은 보기를 고를 때마다 집계합니다(오답 재도전 제외) · 문제나 보기를 고치면 그 문항은 새로 집계됩니다</p>
+  <p class="foot">점수 분포는 퀴즈를 끝까지 푼 기록만 집계합니다 · 오답 재도전은 제외 · 점수, 소요 시간, 고른 보기 외에는 저장하지 않습니다</p>
 </div>
 
 <script src="config.js"></script>
 <script src="stats-api.js"></script>
+<script src="questions.js"></script>
 <script>
 (function () {
   "use strict";
@@ -274,8 +319,96 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
       $("t-msg").textContent = "통계를 불러오지 못했습니다 (" + e.message + "). 잠시 후 새로고침해 주세요.";
     });
   }
-  $("b-refresh").addEventListener("click", load);
+  // ---------- 문항별 정답률 ----------
+  var BANK = window.QUIZ_BANK, ITEMS = null, SHOWN = 0, PAGE = 20;
+  function items(map) {
+    return BANK.q.map(function (r, i) {
+      var n = map[S.qkey(r)] || [0, 0, 0, 0], rt = S.rate(n);
+      return { no: i + 1, row: r, n: n, total: rt.total, pct: rt.pct };
+    });
+  }
+  function filtered() {
+    var cat = $("qs-cat").value, sort = $("qs-sort").value, only = $("qs-only").checked;
+    var f = $("qs-find").value.trim().toLowerCase();
+    var list = ITEMS.filter(function (it) {
+      if (cat !== "" && it.row[0] !== Number(cat)) return false;
+      if (only && !it.total) return false;
+      if (f && it.row.slice(1).join(" ").toLowerCase().indexOf(f) === -1) return false;
+      return true;
+    });
+    function byPct(a, b) {   // 응답 없는 문항은 맨 뒤
+      if (!a.total || !b.total) return (!a.total) - (!b.total);
+      return a.pct - b.pct || b.total - a.total;
+    }
+    if (sort === "hard") list.sort(function (a, b) { return byPct(a, b) || a.no - b.no; });
+    else if (sort === "easy") list.sort(function (a, b) { return (!a.total || !b.total) ? byPct(a, b) : (b.pct - a.pct || b.total - a.total || a.no - b.no); });
+    else if (sort === "many") list.sort(function (a, b) { return b.total - a.total || a.no - b.no; });
+    else list.sort(function (a, b) { return a.no - b.no; });
+    return list;
+  }
+  function card(it) {
+    var d = document.createElement("div"); d.className = "qs";
+    var top = document.createElement("div"); top.className = "qs-top";
+    function sp(cls, t) { var e = document.createElement("span"); if (cls) e.className = cls; e.textContent = t; return e; }
+    top.appendChild(sp(null, "#" + it.no));
+    top.appendChild(sp(null, BANK.c[it.row[0]]));
+    top.appendChild(sp(null, it.total ? "응답 " + num(it.total) + "회" : "응답 없음"));
+    var rt = sp("rt" + (it.total && it.pct < 30 ? " hard" : it.total && it.pct >= 80 ? " easy" : ""),
+      it.total ? "정답률 " + Math.round(it.pct) + "%" : "-");
+    top.appendChild(rt); d.appendChild(top);
+    var q = document.createElement("div"); q.className = "qs-q"; q.textContent = it.row[1]; d.appendChild(q);
+    var opts = document.createElement("div"); opts.className = "qs-opts";
+    [0, 1, 2, 3].map(function (k) { return { k: k, c: it.n[k] || 0 }; })
+      .sort(function (a, b) { return b.c - a.c || a.k - b.k; })
+      .forEach(function (o) {
+        var p = it.total ? o.c / it.total * 100 : 0;
+        var row = document.createElement("div"); row.className = "qs-o" + (o.k === 0 ? " ok" : "");
+        var lab = document.createElement("span"); lab.className = "lab";
+        var bar = document.createElement("i"); bar.style.width = p.toFixed(1) + "%";
+        lab.appendChild(bar); lab.appendChild(sp(null, (o.k === 0 ? "정답 · " : "") + it.row[2 + o.k]));
+        var b = document.createElement("b"); b.textContent = it.total ? Math.round(p) + "%" : "";
+        row.appendChild(lab); row.appendChild(b); opts.appendChild(row);
+      });
+    d.appendChild(opts);
+    return d;
+  }
+  function renderQS(reset) {
+    if (!ITEMS) return;
+    var list = filtered(), box = $("qs-list");
+    if (reset) { box.textContent = ""; SHOWN = 0; }
+    list.slice(SHOWN, SHOWN + PAGE).forEach(function (it) { box.appendChild(card(it)); });
+    SHOWN = Math.min(list.length, SHOWN + PAGE);
+    $("qs-more").hidden = SHOWN >= list.length;
+    $("qs-more").textContent = "더 보기 (" + num(list.length - SHOWN) + "문항 남음)";
+    $("qs-msg").textContent = list.length ? "" : ($("qs-only").checked && !$("qs-find").value
+      ? "조건에 맞는 문항 중 아직 응답이 쌓인 문항이 없습니다." : "조건에 맞는 문항이 없습니다.");
+  }
+  function loadQS() {
+    if (!BANK || !BANK.q) { $("qs-sec").hidden = true; return; }
+    if (!S || !S.enabled) { $("qs-sum").textContent = ""; $("qs-msg").textContent = "통계 서버가 설정되지 않았습니다."; return; }
+    $("qs-sum").textContent = "불러오는 중";
+    S.questionStats().then(function (map) {
+      ITEMS = items(map || {});
+      var answered = ITEMS.filter(function (it) { return it.total; }).length;
+      var sum = ITEMS.reduce(function (a, it) { return a + it.total; }, 0);
+      $("qs-sum").textContent = "응답 있는 문항 " + num(answered) + " / " + num(ITEMS.length) + " · 총 " + num(sum) + "회";
+      renderQS(true);
+    }).catch(function (e) {
+      $("qs-sum").textContent = "";
+      $("qs-msg").className = "hint err";
+      $("qs-msg").textContent = "문항별 통계를 불러오지 못했습니다 (" + e.message + "). Supabase에 새 SQL을 실행했는지 확인해 주세요.";
+    });
+  }
+  if (BANK && BANK.c) BANK.c.forEach(function (name, i) {
+    var o = document.createElement("option"); o.value = String(i); o.textContent = name; $("qs-cat").appendChild(o);
+  });
+  ["qs-cat", "qs-sort", "qs-only"].forEach(function (id) { $(id).addEventListener("change", function () { renderQS(true); }); });
+  var tmr; $("qs-find").addEventListener("input", function () { clearTimeout(tmr); tmr = setTimeout(function () { renderQS(true); }, 150); });
+  $("qs-more").addEventListener("click", function () { renderQS(false); });
+
+  $("b-refresh").addEventListener("click", function () { load(); loadQS(); });
   load();
+  loadQS();
 })();
 </script>
 </body>

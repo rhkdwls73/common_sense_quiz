@@ -54,12 +54,33 @@
     box.appendChild(bars); box.appendChild(axis);
   }
 
+  // 문항 키: 문제·정답·오답 내용으로 만든 8자리 해시 (FNV-1a 32비트).
+  // 문제나 보기를 고치면 키가 바뀌어 그 문항의 정답률은 새로 집계됩니다.
+  function qkey(row) {
+    var s = [row[1], row[2], row[3], row[4], row[5]].join("\u241F"), h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return ("0000000" + h.toString(16)).slice(-8);
+  }
+
+  // n = [정답, 오답1, 오답2, 오답3]을 고른 수 → 응답 수와 정답률(%)
+  function rate(n) {
+    var t = (n || []).reduce(function (a, b) { return a + (b || 0); }, 0);
+    return { total: t, pct: t ? n[0] / t * 100 : null };
+  }
+
   window.QuizStats = {
     enabled: !!(url && key),
     stats: function () { return call("score_stats"); },
     submit: function (score, seconds) { return call("submit_attempt", { p_score: score, p_seconds: seconds }); },
     rank: rank,
     fmtTop: fmtTop,
-    histogram: histogram
+    histogram: histogram,
+    qkey: qkey,
+    rate: rate,
+    answer: function (key, choice) { return call("record_answer", { p_key: key, p_choice: choice }); },
+    questionStats: function () { return call("question_stats_all"); }
   };
 })();
