@@ -37,7 +37,23 @@ as $$
   );
 $$;
 
--- 3) 응시 결과 제출 후 갱신된 통계를 돌려줌
+-- 같은 점수면 더 빨리 푼 사람이 앞 순위: 나보다 점수가 높은 수(higher), 같은 점수인데 더 빠른 수(faster)
+create or replace function public.score_rank(p_score integer, p_seconds integer)
+returns json
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select json_build_object(
+    'total',  count(*),
+    'higher', count(*) filter (where score > p_score),
+    'same',   count(*) filter (where score = p_score),
+    'faster', count(*) filter (where score = p_score and seconds < p_seconds)
+  ) from attempts;
+$$;
+
+-- 3) 응시 결과 제출 후 갱신된 통계와 내 순위를 돌려줌
 create or replace function public.submit_attempt(p_score integer, p_seconds integer)
 returns json
 language plpgsql
@@ -64,15 +80,17 @@ begin
   end if;
 
   insert into attempts (score, seconds, client_hash) values (p_score, p_seconds, v_hash);
-  return score_stats();
+  return (score_stats()::jsonb || jsonb_build_object('rank', score_rank(p_score, p_seconds)::jsonb))::json;
 end;
 $$;
 
 -- 4) 웹페이지(공개 키)에서는 이 함수들만 실행 가능
 revoke all on function public.score_stats() from public;
 revoke all on function public.submit_attempt(integer, integer) from public;
+revoke all on function public.score_rank(integer, integer) from public;
 grant execute on function public.score_stats() to anon, authenticated;
 grant execute on function public.submit_attempt(integer, integer) to anon, authenticated;
+grant execute on function public.score_rank(integer, integer) to anon, authenticated;
 
 -- =====================================================================
 -- 5) 문항별 정답률 (보기마다 몇 명이 골랐는지)
