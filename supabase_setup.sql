@@ -339,7 +339,7 @@ grant execute on function public.question_stats_all() to anon, authenticated;
 -- 6) 랭킹전
 --    닉네임을 걸고 10·20·30·40문항 중 하나를 골라, 문항당 5초(20문항 100초) 안에 몇 개 맞히는지 겨룹니다.
 --    · 문항 수마다 하루(한국 시간) 한 번. 같은 기기 1회, 같은 접속 주소는 하루 3회까지.
---    · 그날은 모두 같은 문제가 나옵니다 (그날 처음 시작한 사람의 문제 세트를 저장해 모두에게 냄).
+--    · 문제는 도전마다 무작위로 뽑습니다 (남의 문제를 보고 미리 답을 알 수 없도록).
 --    · 제한 시간은 서버 시각으로 잽니다. 시간이 지나거나 그만두면 그때까지 맞힌 개수로 기록됩니다.
 --    · 순위: 맞힌 개수 → 걸린 시간 순. 역대 1~3위는 명예의 전당으로 남습니다.
 -- =====================================================================
@@ -368,6 +368,8 @@ create table if not exists public.ranked_runs (
   seconds     numeric(6,1),
   unique (day, size, device)
 );
+-- 도전마다 뽑힌 문항 키 (예전 방식의 '그날 공통 세트'는 ranked_sets에 남아 있음)
+alter table public.ranked_runs add column if not exists keys text[];
 create index if not exists ranked_runs_board on public.ranked_runs (size, day, score desc, seconds);
 create index if not exists ranked_runs_open on public.ranked_runs (deadline) where ended_at is null;
 alter table public.ranked_runs enable row level security;
@@ -404,10 +406,10 @@ set search_path = public
 as $$
   select json_build_object(
     'id', r.id, 'day', r.day, 'size', r.size, 'nickname', r.nickname,
-    'keys', s.keys, 'answers', r.answers, 'ended', r.ended_at is not null,
+    'keys', coalesce(r.keys, s.keys), 'answers', r.answers, 'ended', r.ended_at is not null,
     'score', r.score, 'seconds', r.seconds, 'limit', ranked_limit(r.size),
     'remaining_ms', greatest(0, floor(extract(epoch from (r.deadline - now())) * 1000))::bigint)
-  from ranked_runs r join ranked_sets s on s.day = r.day and s.size = r.size
+  from ranked_runs r left join ranked_sets s on s.day = r.day and s.size = r.size
   where r.id = p_id;
 $$;
 
@@ -457,9 +459,8 @@ begin
     raise exception '같은 네트워크에서 오늘 %문항 랭킹전 도전 횟수를 넘었습니다', p_size;
   end if;
 
-  insert into ranked_sets (day, size, keys) values (v_day, p_size, p_keys) on conflict do nothing;
-  insert into ranked_runs (day, size, nickname, device, client_hash, answers, deadline)
-  values (v_day, p_size, v_nick, p_device, v_hash, array_fill(null::smallint, array[p_size]),
+  insert into ranked_runs (day, size, nickname, device, client_hash, keys, answers, deadline)
+  values (v_day, p_size, v_nick, p_device, v_hash, p_keys, array_fill(null::smallint, array[p_size]),
           now() + make_interval(secs => ranked_limit(p_size)))
   returning id into v_id;
   return ranked_state(v_id);
@@ -487,7 +488,10 @@ begin
   if r.ended_at is not null then raise exception '이미 끝난 도전입니다'; end if;
   if now() > r.deadline + interval '2 seconds' then raise exception '제한 시간이 끝났습니다'; end if;
   if p_pos is null or p_pos < 0 or p_pos >= r.size then raise exception '문항 정보가 올바르지 않습니다'; end if;
-  select keys[p_pos + 1] into v_key from ranked_sets where day = r.day and size = r.size;
+  v_key := r.keys[p_pos + 1];
+  if v_key is null then
+    select keys[p_pos + 1] into v_key from ranked_sets where day = r.day and size = r.size;
+  end if;
 
   if r.answers[p_pos + 1] is not null then
     select * into q from question_stats where qkey = v_key;
