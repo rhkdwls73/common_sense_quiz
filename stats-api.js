@@ -111,7 +111,10 @@
     },
     rankedAnswer: function (round, pos, choice) { return call("ranked_answer", { p_round: round, p_pos: pos, p_choice: choice }); },
     rankedEnd: function (round) { return call("ranked_end", { p_round: round }); },
-    rankedBoard: function (size) { return call("ranked_board", { p_size: size }); },
+    rankedBoard: function (size, limit) {
+      var body = { p_size: size }; if (limit) body.p_limit = limit;
+      return call("ranked_board", body);
+    },
     rankedStatus: function (device) { return call("ranked_status", { p_device: device }); },
     fmtTop: fmtTop,
     histogram: histogram,
