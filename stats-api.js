@@ -74,14 +74,22 @@
   window.QuizStats = {
     enabled: !!(url && key),
     stats: function () { return call("score_stats"); },
-    submit: function (score, seconds) { return call("submit_attempt", { p_score: score, p_seconds: seconds }); },
+    // 판 단위 기록: 시작할 때 판 번호를 받고, 답마다 그 판에 저장, 끝나면 서버가 점수를 계산
+    startRound: function (keys) { return call("start_round", { p_keys: keys }).then(function (r) { return r && r.id; }); },
+    endRound: function (round, quit) { return call("end_round", { p_round: round, p_quit: !!quit }); },
     rank: rank,
     fmtTop: fmtTop,
     histogram: histogram,
     qkey: qkey,
     rate: rate,
-    answer: function (key, choice) { return call("record_answer", { p_key: key, p_choice: choice }); },
+    answer: function (key, choice, round, pos) {
+      var body = { p_key: key, p_choice: choice };
+      if (round) { body.p_round = round; body.p_pos = pos; }
+      return call("record_answer", body);
+    },
     questionStats: function () { return call("question_stats_all"); },
-    rankOf: function (score, seconds) { return call("score_rank", { p_score: score, p_seconds: seconds }); }
+    rankOf: function (score, seconds, abandoned) {
+      return call("score_rank", { p_score: score, p_seconds: seconds, p_abandoned: !!abandoned });
+    }
   };
 })();
