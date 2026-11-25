@@ -181,6 +181,38 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
 .hist-col.me .hist-n { visibility: visible; color: var(--omr); font-weight: 600; }
 .hist-axis { display: grid; grid-template-columns: repeat(21, 1fr); gap: 3px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-align: center; }
 .hist-axis .me { color: var(--omr); font-weight: 600; }
+/* 랭킹전 순위표 (stats.html과 공유) */
+.lb { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-variant-numeric: tabular-nums; }
+.lb li { display: grid; grid-template-columns: 3.2em minmax(0, 1fr) auto auto auto; gap: 12px; align-items: baseline; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.lb .rk { font-family: var(--font-mono); font-weight: 600; color: var(--muted); }
+.lb .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb .dy, .lb .tm { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.lb .sc { font-family: var(--font-mono); font-weight: 600; }
+.lb li.top1 .rk, .lb li.top2 .rk, .lb li.top3 .rk { color: var(--omr); }
+.lb li.top1 { background: var(--omr-soft); }
+.lb li.me { outline: 2px solid var(--omr); outline-offset: -2px; border-radius: 3px; }
+/* 랭킹전 */
+.ranked { border-top: 1.5px dashed var(--line); padding-top: 18px; display: grid; gap: 12px; }
+.ranked h2 small { font-family: var(--font-body); font-weight: 500; font-size: 13px; color: var(--muted); margin-left: 6px; }
+.rk-nick { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+.rk-nick input { font: inherit; font-size: 16px; color: var(--ink); background: var(--sheet); border: 1.5px solid var(--line); border-radius: 4px; padding: 7px 10px; width: 14em; max-width: 100%; }
+.rk-nick input:focus { outline: none; border-color: var(--omr); }
+.rk-sizes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.rk-btn { display: grid; gap: 2px; justify-items: start; text-align: left; border: 1.5px solid var(--omr); background: transparent; border-radius: 5px; padding: 10px 12px; }
+.rk-btn b { font-family: var(--font-display); font-weight: 900; font-size: 20px; line-height: 1.2; }
+.rk-btn span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rk-btn:hover:not([disabled]) { background: var(--omr-soft); }
+.rk-btn.live { background: var(--omr-soft); }
+.rk-btn[disabled] { border-color: var(--line); cursor: default; }
+.rk-btn[disabled] b { color: var(--muted); }
+@media (max-width: 520px) { .rk-sizes { grid-template-columns: repeat(2, 1fr); } }
+.timer { display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.timer .bar { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.timer .bar i { display: block; height: 100%; width: 100%; background: var(--omr); border-radius: 4px; }
+.timer.low { color: var(--bad); }
+.timer.low .bar i { background: var(--bad); }
+.board-sec { display: grid; gap: 8px; }
+.board-sec h3 { font-size: 14px; margin: 4px 0 0; color: var(--omr); }
 .foot { font-size: 12px; color: var(--muted); text-align: center; }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: no-preference) {
@@ -222,12 +254,24 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
         <span class="hint" id="s-status"></span>
         <a class="link" href="stats.html" id="s-statslink" hidden>전체 응시 통계 보기</a>
       </div>
+      <div class="ranked" id="s-ranked" hidden>
+        <h2>랭킹전<small>닉네임 걸고 시간 안에 몇 개 맞히나</small></h2>
+        <ul class="rules">
+          <li>문항당 5초입니다 (10문항 50초 · 20문항 100초 · 30문항 150초 · 40문항 200초). 시간은 서버가 재며, 시간이 끝나면 안 푼 문항은 오답입니다.</li>
+          <li>문항 수마다 하루에 한 번씩 도전할 수 있고, 그날은 모두 같은 문제가 나옵니다.</li>
+          <li>맞힌 개수가 같으면 더 빨리 끝낸 사람이 앞 순위입니다. 역대 1~3위는 명예의 전당에 남습니다.</li>
+        </ul>
+        <label class="rk-nick">닉네임 <input id="rk-nick" maxlength="12" autocomplete="nickname" placeholder="1~12자"></label>
+        <div class="rk-sizes" id="rk-sizes"></div>
+        <div class="actions"><span class="hint" id="rk-status"></span><a class="link" href="stats.html#ranked">랭킹·명예의 전당 보기</a></div>
+      </div>
     </div>
   </section>
 
   <!-- Quiz -->
   <section class="sheet" id="v-quiz" hidden>
     <div class="sheet-body">
+      <div class="timer" id="q-timer" hidden><span id="q-timeleft">0.0초</span><span class="bar"><i id="q-timebar"></i></span></div>
       <div class="strip" id="q-strip" aria-label="진행 상황"></div>
       <div class="fade" id="q-card">
         <div class="qtop">
@@ -301,6 +345,8 @@ var EMBEDDED = window.QUIZ_BANK;
   var rid = null, ridP = Promise.resolve(null), ridErr = "", pending = [];   // 서버 판 번호와 보내는 중인 답
   var STATS = window.QuizStats && window.QuizStats.enabled ? window.QuizStats : null;
   var QS = null;           // 문항별 집계 캐시 {qkey: [정답, 오답1, 오답2, 오답3]}
+  var RK = null;           // 랭킹전 진행 중이면 {id, size, limit, deadlineAt, day}
+  var RK_SIZES = [10, 20, 30, 40], RK_SEC = 5, timerId = null;
 
   // ---------- storage (best effort) ----------
   function load(key, fallback) {
@@ -312,10 +358,15 @@ var EMBEDDED = window.QUIZ_BANK;
   var seen = load("seen3", []);     // recently served question ids, newest last (문제 은행 교체 후 새로 시작)
   var rounds = load("rounds", 0);
   var best = load("best", null);
+  var DEVICE = load("device", null);  // 랭킹전 하루 한 번 확인용 기기 번호 (무작위)
+  if (!DEVICE || !/^[0-9a-f-]{36}$/.test(DEVICE)) {
+    DEVICE = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, function () { return (Math.random() * 16 | 0).toString(16); });
+    save("device", DEVICE);
+  }
 
   // 진행 중인 판 (새로고침·재접속하면 이어서 풂)
   function saveCur() {
-    if (isRetry || !round.length) return;
+    if (isRetry || RK || !round.length) return;
     save("cur", { rid: rid, ids: round.map(function (q) { return q.id; }), orders: round.map(function (q) { return q.order; }),
       keys: round.map(function (q) { return q.key; }), picks: picks, startAt: startAt });
   }
@@ -371,6 +422,104 @@ var EMBEDDED = window.QUIZ_BANK;
     });
   }
 
+  // ---------- 랭킹전: 그날의 문제 세트 (날짜로 정해지므로 모두 같음, 문항 수끼리는 겹치지 않음) ----------
+  function kstDay() { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); }
+  function seeded(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return function () {
+      h = (h + 0x6D2B79F5) >>> 0; var t = h;
+      t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function dailyIds(size) {
+    var rnd = seeded("sangsik-ranked:" + kstDay()), ids = DB.q.map(function (_, i) { return i; });
+    for (var i = ids.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var t = ids[i]; ids[i] = ids[j]; ids[j] = t; }
+    var used = {}, sets = {};
+    [[10, 1], [20, 1], [30, 2], [40, 2]].forEach(function (p) {
+      var out = [], per = {};
+      for (var cap = p[1]; out.length < p[0] && cap <= p[0]; cap++) {
+        for (var k = 0; k < ids.length && out.length < p[0]; k++) {
+          var id = ids[k], c = DB.q[id][0];
+          if (used[id] || (per[c] || 0) >= cap) continue;
+          per[c] = (per[c] || 0) + 1; used[id] = 1; out.push(id);
+        }
+      }
+      sets[p[0]] = out;
+    });
+    return sets[size];
+  }
+  var KEYIDX = null;
+  function idOfKey(k) {
+    if (!KEYIDX) { KEYIDX = {}; DB.q.forEach(function (r, i) { KEYIDX[STATS.qkey(r)] = i; }); }
+    return KEYIDX[k];
+  }
+
+  // ---------- 랭킹전 시작 화면 ----------
+  var RK_STATUS = {};
+  function renderRanked() {
+    var sec = $("s-ranked");
+    sec.hidden = !STATS;
+    if (!STATS) return;
+    var nick = $("rk-nick"); if (!nick.value) nick.value = load("nick", "");
+    var box = $("rk-sizes"); box.textContent = "";
+    RK_SIZES.forEach(function (n) {
+      var st = RK_STATUS[n], b = el("button", "rk-btn"); b.type = "button";
+      b.appendChild(el("b", null, n + "문항"));
+      b.appendChild(el("span", null, "제한 " + (n * RK_SEC) + "초"));
+      if (st && st.ended) { b.disabled = true; b.appendChild(el("span", null, "오늘 완료 · " + st.score + " / " + n)); }
+      else if (st) { b.classList.add("live"); b.appendChild(el("span", null, "진행 중 · 이어서 풀기")); }
+      else b.appendChild(el("span", null, "오늘 도전 가능"));
+      b.addEventListener("click", function () { startRanked(n); });
+      box.appendChild(b);
+    });
+  }
+  function loadRankedStatus() {
+    if (!STATS) return;
+    STATS.rankedStatus(DEVICE).then(function (list) {
+      RK_STATUS = {}; (list || []).forEach(function (r) { RK_STATUS[r.size] = r; });
+      if (!$("v-start").hidden) renderRanked();
+    }).catch(function () {});
+  }
+  function startRanked(size) {
+    var msg = $("rk-status"); msg.className = "hint";
+    var st = RK_STATUS[size];
+    var nick = (st && st.nickname) || $("rk-nick").value.trim();
+    if (!nick) { msg.className = "hint err"; msg.textContent = "닉네임을 입력해 주세요."; $("rk-nick").focus(); return; }
+    if (nick.length > 12) { msg.className = "hint err"; msg.textContent = "닉네임은 12자까지입니다."; return; }
+    if (!st && !confirm(size + "문항 랭킹전을 시작합니다. 제한 시간은 " + (size * RK_SEC) + "초이고, 오늘은 이 문항 수로 다시 도전할 수 없습니다. 시작할까요?")) return;
+    save("nick", nick);
+    var btns = $("rk-sizes").querySelectorAll("button"); btns.forEach(function (b) { b.disabled = true; });
+    msg.textContent = "문제를 받는 중…";
+    var keys = dailyIds(size).map(function (id) { return STATS.qkey(DB.q[id]); });
+    STATS.rankedStart(size, nick, DEVICE, keys).then(function (r) {
+      var ids = r.keys.map(idOfKey);
+      if (ids.some(function (x) { return x == null; })) throw new Error("문제 은행이 바뀌었습니다. 페이지를 새로고침해 주세요");
+      msg.textContent = "";
+      var orders = load("rko:" + r.id, null);
+      if (!orders || orders.length !== ids.length) orders = null;
+      begin(ids, false, null, { id: r.id, size: r.size, limit: Number(r.limit), day: r.day,
+        deadlineAt: Date.now() + Number(r.remaining_ms), answers: r.answers, orders: orders });
+    }).catch(function (err) {
+      msg.className = "hint err"; msg.textContent = err.message;
+      loadRankedStatus(); renderRanked();
+    });
+  }
+
+  // ---------- 랭킹전 제한 시간 ----------
+  function startTimer() { stopTimer(); $("q-timer").hidden = false; tick(); timerId = setInterval(tick, 200); }
+  function stopTimer() { if (timerId) clearInterval(timerId); timerId = null; $("q-timer").hidden = true; }
+  function timeLeft() { return RK ? Math.max(0, RK.deadlineAt - Date.now()) : 0; }
+  function tick() {
+    if (!RK) return stopTimer();
+    var left = timeLeft();
+    $("q-timeleft").textContent = (left / 1000).toFixed(1) + "초";
+    $("q-timebar").style.width = (left / (RK.limit * 1000) * 100).toFixed(2) + "%";
+    $("q-timer").classList.toggle("low", left < 10000);
+    if (left <= 0) { stopTimer(); finish(false, "timeout"); }
+  }
+
   // ---------- start view ----------
   function renderStart() {
     var counts = {}; DB.q.forEach(function (r) { counts[r[0]] = (counts[r[0]] || 0) + 1; });
@@ -397,6 +546,7 @@ var EMBEDDED = window.QUIZ_BANK;
       $("b-new").hidden = true;
       $("s-status").textContent = "";
     }
+    renderRanked(); loadRankedStatus();
   }
 
   // ---------- quiz view ----------
@@ -405,12 +555,17 @@ var EMBEDDED = window.QUIZ_BANK;
     STATS.questionStats().then(function (m) { QS = m || {}; }).catch(function () {});
   }
 
-  function begin(ids, retry, resume) {
+  function begin(ids, retry, resume, ranked) {
     isRetry = !!retry;
+    stopTimer(); RK = ranked || null;
     refreshQS();
-    round = build(ids, resume && resume.orders); idx = 0; picks = []; startAt = Date.now();
+    round = build(ids, (resume && resume.orders) || (ranked && ranked.orders)); idx = 0; picks = []; startAt = Date.now();
     pending = []; rid = null; ridErr = ""; ridP = Promise.resolve(null);
-    if (resume) {
+    if (RK) {
+      save("rko:" + RK.id, round.map(function (q) { return q.order; }));
+      picks = (RK.answers || []).map(function (a, i) { return a == null ? null : round[i].order.indexOf(a); });
+      startAt = RK.deadlineAt - RK.limit * 1000;
+    } else if (resume) {
       picks = resume.picks.slice(); startAt = resume.startAt; rid = resume.rid || null; ridP = Promise.resolve(rid);
       if (!rid) ridErr = "이 판은 시작할 때 통계 서버에 연결하지 못했습니다";
     } else if (!isRetry && STATS) {
@@ -421,15 +576,16 @@ var EMBEDDED = window.QUIZ_BANK;
     saveCur();
     var strip = $("q-strip"); strip.textContent = "";
     strip.style.gridTemplateColumns = window.matchMedia("(max-width: 520px)").matches
-      ? "repeat(" + Math.min(10, round.length) + ", 1fr)" : "repeat(" + round.length + ", 1fr)";
+      ? "repeat(" + Math.min(10, round.length) + ", 1fr)" : "repeat(" + Math.min(20, round.length) + ", 1fr)";
     round.forEach(function (q, i) {
       var c = el("div", "cell"); c.appendChild(el("span", "n", String(i + 1))); c.appendChild(el("span", "b")); strip.appendChild(c);
       if (picks[i] != null) c.classList.add(picks[i] === q.ans ? "ok" : "no");
     });
     while (idx < round.length && picks[idx] != null) idx++;
-    if (idx >= round.length) { finish(false); return; }      // 다 풀고 결과 보기 전에 나갔던 판
+    if (idx >= round.length || (RK && timeLeft() <= 0)) { finish(false, RK && timeLeft() <= 0 ? "timeout" : null); return; }      // 다 풀고 결과 보기 전에 나갔던 판
     show("v-quiz");
     renderQ();
+    if (RK) startTimer();
   }
 
   function renderQ() {
@@ -458,7 +614,7 @@ var EMBEDDED = window.QUIZ_BANK;
   }
 
   function choose(i) {
-    if (picks[idx] != null) return;
+    if (picks[idx] != null || (RK && timeLeft() <= 0)) return;
     var q = round[idx]; picks[idx] = i;
     saveCur();
     var btns = $("q-opts").children;
@@ -487,7 +643,8 @@ var EMBEDDED = window.QUIZ_BANK;
     }
     if (cached) { cached[mine]++; q.n = cached; paintCrowd(q, at); }   // 서버 응답 전 미리 표시
     else waitCrowd(at, "다른 응시자 선택 비율을 불러오는 중…");
-    var req = ridP.then(function (r) { return STATS.answer(q.key, mine, r, at); });
+    var req = RK ? STATS.rankedAnswer(RK.id, at, mine)
+      : ridP.then(function (r) { return STATS.answer(q.key, mine, r, at); });
     pending.push(req.catch(function () {}));
     req.then(function (res) {
       if (!res || !res.n) return;
@@ -533,7 +690,7 @@ var EMBEDDED = window.QUIZ_BANK;
 
   function next() {
     if (picks[idx] == null) return;
-    if (idx < round.length - 1) { idx++; renderQ(); } else finish();
+    if (idx < round.length - 1) { idx++; renderQ(); } else finish(false);
   }
 
   // ---------- result view ----------
@@ -546,13 +703,16 @@ var EMBEDDED = window.QUIZ_BANK;
     return "다음 회차를 노려 보세요";
   }
 
-  function finish(quit) {
-    var elapsed = Date.now() - startAt;
+  function finish(quit, why) {
+    stopTimer();
+    var elapsed = RK ? Math.min(RK.limit * 1000, Date.now() - startAt) : Date.now() - startAt;
     var right = round.filter(function (q, i) { return picks[i] === q.ans; }).length;
     var total = round.length;
     var skipped = round.filter(function (q, i) { return picks[i] == null; }).length;
 
-    if (!isRetry) {
+    if (RK) {
+      try { localStorage.removeItem("quiz1000v2:rko:" + RK.id); } catch (e) {}
+    } else if (!isRetry) {
       clearCur();
       rounds += 1; save("rounds", rounds);
       if (best == null || right > best) { best = right; save("best", best); }
@@ -562,7 +722,7 @@ var EMBEDDED = window.QUIZ_BANK;
       save("seen3", seen);
     }
 
-    $("r-round").textContent = isRetry ? "오답 재도전" : "제 " + rounds + "회";
+    $("r-round").textContent = RK ? "랭킹전 " + total + "문항" : isRetry ? "오답 재도전" : "제 " + rounds + "회";
     $("r-rate").textContent = Math.round(right / total * 100) + "%";
     $("r-time").textContent = fmtTime(elapsed);
     $("r-best").textContent = best == null ? "-" : best + " / " + N;
@@ -570,6 +730,9 @@ var EMBEDDED = window.QUIZ_BANK;
     $("r-grade").textContent = grade(right, total);
     $("r-sub").textContent = isRetry
       ? "틀렸던 문항을 다시 풀었습니다. 이 결과는 최고 점수에 반영되지 않습니다."
+      : RK && why === "timeout" ? "제한 시간 " + RK.limit + "초가 끝났습니다." + (skipped ? " 안 푼 " + skipped + "문항은 오답입니다." : "")
+      : RK && quit ? "도전을 그만뒀습니다. 안 푼 " + skipped + "문항은 오답으로 기록됩니다."
+      : RK ? "제한 시간 " + RK.limit + "초 중 " + (elapsed / 1000).toFixed(1) + "초 만에 끝냈습니다."
       : quit ? "중간에 그만둔 판입니다. 안 푼 " + skipped + "문항은 오답으로 처리됩니다."
       : "문항당 평균 " + (elapsed / total / 1000).toFixed(1) + "초 걸렸습니다.";
 
@@ -610,7 +773,34 @@ var EMBEDDED = window.QUIZ_BANK;
     retry.onclick = function () { if (wrongIds.length) begin(shuffle(wrongIds.slice()), true); };
 
     show("v-result");
-    showRank(right, total, elapsed, !!quit);
+    if (RK) showRanked(); else showRank(right, total, elapsed, !!quit);
+  }
+
+  // 랭킹전 결과: 서버가 기록을 마감하고 오늘 순위와 명예의 전당을 돌려줌
+  function showRanked() {
+    var box = $("r-rank"), rk = RK; box.hidden = false;
+    $("r-top").textContent = "기록하는 중";
+    $("r-ranksub").textContent = ""; $("r-hist").textContent = ""; $("r-note").textContent = "";
+    Promise.all(pending).then(function () { return STATS.rankedEnd(rk.id); }).then(function (res) {
+      var b = res.board || {}, ko = function (n) { return Number(n).toLocaleString("ko-KR"); };
+      var top = $("r-top"); top.textContent = "";
+      top.append("오늘 " + res.size + "문항 ", el("b", null, ko(res.rank) + "위"));
+      $("r-ranksub").textContent = "오늘 도전 " + ko(b.total || 0) + "명 · " + res.score + " / " + res.size + " · " + STATS.fmtSec(res.seconds);
+      $("r-time").textContent = STATS.fmtSec(res.seconds);
+      var me = { nickname: res.nickname, score: res.score, seconds: res.seconds };
+      var hb = $("r-hist");
+      var s1 = el("div", "board-sec"); s1.appendChild(el("h3", null, "오늘 순위 (상위 10명)"));
+      var l1 = el("div"); STATS.leaderboard(l1, b.board, { size: res.size, me: me }); s1.appendChild(l1); hb.appendChild(s1);
+      var s2 = el("div", "board-sec"); s2.appendChild(el("h3", null, "명예의 전당 · 역대 " + res.size + "문항 1~3위"));
+      var l2 = el("div"); STATS.leaderboard(l2, b.hall, { size: res.size, me: me, showDay: true }); s2.appendChild(l2); hb.appendChild(s2);
+      var a = el("a", "link", "전체 랭킹 보기"); a.href = "stats.html#ranked";
+      $("r-note").textContent = "맞힌 개수가 같으면 더 빨리 끝낸 사람이 앞 순위입니다. 오늘 " + res.size + "문항 도전은 끝났고, 내일 다시 도전할 수 있습니다. ";
+      $("r-note").appendChild(a);
+    }).catch(function (err) {
+      $("r-top").textContent = "기록을 불러오지 못했습니다";
+      $("r-note").textContent = err.message + " · 기록은 서버에 남아 있을 수 있으니 랭킹 페이지에서 확인해 주세요.";
+    });
+    RK = null;
   }
 
   // 서버에 판을 끝냈다고 알리고 서버가 계산한 점수·순위를 받음.
@@ -696,6 +886,11 @@ var EMBEDDED = window.QUIZ_BANK;
   $("b-quit").addEventListener("click", function () {
     var answered = picks.filter(function (p) { return p != null; }).length;
     if (isRetry) { renderStart(); show("v-start"); return; }
+    if (RK) {
+      var ok = round.filter(function (q, i) { return picks[i] === q.ans; }).length;
+      if (!confirm("지금 그만두면 " + ok + "개 맞힌 것으로 기록되고, 오늘은 " + round.length + "문항 랭킹전에 다시 도전할 수 없습니다. 그만둘까요?")) return;
+      finish(true); return;
+    }
     if (answered === 0) {                                   // 한 문제도 안 풀었으면 기록 없이 나감
       ridP.then(function (r) { if (r) return STATS.endRound(r, true); }).catch(function () {});
       clearCur(); renderStart(); show("v-start"); return;

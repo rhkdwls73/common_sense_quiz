@@ -173,6 +173,22 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
   @keyframes fade { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 }
 
+/* 랭킹전 순위표 (stats.html과 공유) */
+.lb { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-variant-numeric: tabular-nums; }
+.lb li { display: grid; grid-template-columns: 3.2em minmax(0, 1fr) auto auto auto; gap: 12px; align-items: baseline; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.lb .rk { font-family: var(--font-mono); font-weight: 600; color: var(--muted); }
+.lb .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb .dy, .lb .tm { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.lb .sc { font-family: var(--font-mono); font-weight: 600; }
+.lb li.top1 .rk, .lb li.top2 .rk, .lb li.top3 .rk { color: var(--omr); }
+.lb li.top1 { background: var(--omr-soft); }
+.lb li.me { outline: 2px solid var(--omr); outline-offset: -2px; border-radius: 3px; }
+.rk-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.rk-tab { border: 1.5px solid var(--omr); background: transparent; color: var(--omr); border-radius: 999px; padding: 4px 14px; font-weight: 700; font-size: 14px; }
+.rk-tab[aria-selected="true"] { background: var(--omr); color: var(--sheet); }
+.rk-cols { display: grid; grid-template-columns: 3fr 2fr; gap: 18px; align-items: start; }
+.rk-cols h3 { font-size: 14px; margin: 0 0 6px; color: var(--omr); }
+@media (max-width: 620px) { .rk-cols { grid-template-columns: 1fr; } }
 /* Stats page */
 .tbl-wrap { overflow-x: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -241,6 +257,20 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
         <button class="btn ghost" id="b-refresh">새로고침</button>
         <a class="link" href="index.html">새 20문항 풀기</a>
       </div>
+    </div>
+  </section>
+  <section class="sheet" id="ranked">
+    <div class="sheet-body">
+      <div class="actions" style="justify-content: space-between;">
+        <h2>랭킹전</h2>
+        <span class="updated" id="rk-sum">불러오는 중</span>
+      </div>
+      <div class="rk-tabs" role="tablist" id="rk-tabs"></div>
+      <div class="rk-cols">
+        <div><h3 id="rk-today-h">오늘 순위</h3><div id="rk-today"></div></div>
+        <div><h3>명예의 전당 · 역대 1~3위</h3><div id="rk-hall"></div></div>
+      </div>
+      <p class="hint">문항당 5초 · 문항 수마다 하루 한 번 · 맞힌 개수가 같으면 더 빨리 끝낸 사람이 앞 순위입니다. <a class="link" href="index.html">랭킹전 도전하기</a></p>
     </div>
   </section>
   <section class="sheet" id="qs-sec">
@@ -408,7 +438,28 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
   var tmr; $("qs-find").addEventListener("input", function () { clearTimeout(tmr); tmr = setTimeout(function () { renderQS(true); }, 150); });
   $("qs-more").addEventListener("click", function () { renderQS(false); });
 
-  $("b-refresh").addEventListener("click", function () { load(); loadQS(); });
+  // ---------- 랭킹전 ----------
+  var RK_SIZE = 20;
+  [10, 20, 30, 40].forEach(function (n) {
+    var b = document.createElement("button"); b.type = "button"; b.className = "rk-tab"; b.setAttribute("role", "tab");
+    b.textContent = n + "문항"; b.dataset.size = n;
+    b.addEventListener("click", function () { RK_SIZE = n; loadRK(); });
+    $("rk-tabs").appendChild(b);
+  });
+  function loadRK() {
+    Array.prototype.forEach.call($("rk-tabs").children, function (b) { b.setAttribute("aria-selected", String(Number(b.dataset.size) === RK_SIZE)); });
+    if (!S || !S.enabled) { $("rk-sum").textContent = "통계 서버가 설정되지 않았습니다"; return; }
+    $("rk-sum").textContent = "불러오는 중";
+    S.rankedBoard(RK_SIZE).then(function (b) {
+      $("rk-today-h").textContent = "오늘 순위 (" + String(b.day).slice(5).replace("-", "월 ") + "일 · " + num(b.total) + "명)";
+      $("rk-sum").textContent = RK_SIZE + "문항 · 제한 " + b.limit + "초";
+      S.leaderboard($("rk-today"), b.board, { size: RK_SIZE, empty: "오늘은 아직 도전한 사람이 없습니다." });
+      S.leaderboard($("rk-hall"), b.hall, { size: RK_SIZE, showDay: true, empty: "아직 기록이 없습니다." });
+    }).catch(function (e) { $("rk-sum").textContent = "불러오지 못했습니다 (" + e.message + ")"; });
+  }
+  loadRK();
+
+  $("b-refresh").addEventListener("click", function () { load(); loadQS(); loadRK(); });
   load();
   loadQS();
 })();
