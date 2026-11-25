@@ -71,6 +71,32 @@
     return { total: t, pct: t ? n[0] / t * 100 : null };
   }
 
+  function fmtSec(v) { return Number(v).toFixed(1) + "초"; }
+
+  // 랭킹전 순위표: list = [{rank, nickname, score, seconds, day?}], opts = {size, me, showDay}
+  function leaderboard(box, list, opts) {
+    opts = opts || {};
+    box.textContent = "";
+    if (!list || !list.length) {
+      var p = document.createElement("p"); p.className = "hint"; p.textContent = opts.empty || "아직 기록이 없습니다.";
+      box.appendChild(p); return;
+    }
+    var ol = document.createElement("ol"); ol.className = "lb";
+    list.forEach(function (r) {
+      var li = document.createElement("li");
+      if (r.rank <= 3) li.className = "top" + r.rank;
+      if (opts.me && r.nickname === opts.me.nickname && r.score === opts.me.score && Number(r.seconds) === Number(opts.me.seconds)) li.className += " me";
+      function sp(cls, t) { var e = document.createElement("span"); e.className = cls; e.textContent = t; li.appendChild(e); }
+      sp("rk", r.rank + "위");
+      sp("nm", r.nickname);
+      if (opts.showDay && r.day) sp("dy", String(r.day).slice(5).replace("-", "."));
+      sp("sc", r.score + " / " + (opts.size || "?"));
+      sp("tm", fmtSec(r.seconds));
+      ol.appendChild(li);
+    });
+    box.appendChild(ol);
+  }
+
   window.QuizStats = {
     enabled: !!(url && key),
     stats: function () { return call("score_stats"); },
@@ -78,6 +104,15 @@
     startRound: function (keys) { return call("start_round", { p_keys: keys }).then(function (r) { return r && r.id; }); },
     endRound: function (round, quit) { return call("end_round", { p_round: round, p_quit: !!quit }); },
     rank: rank,
+    leaderboard: leaderboard,
+    fmtSec: fmtSec,
+    rankedStart: function (size, nick, device, keys) {
+      return call("ranked_start", { p_size: size, p_nickname: nick, p_device: device, p_keys: keys });
+    },
+    rankedAnswer: function (round, pos, choice) { return call("ranked_answer", { p_round: round, p_pos: pos, p_choice: choice }); },
+    rankedEnd: function (round) { return call("ranked_end", { p_round: round }); },
+    rankedBoard: function (size) { return call("ranked_board", { p_size: size }); },
+    rankedStatus: function (device) { return call("ranked_status", { p_device: device }); },
     fmtTop: fmtTop,
     histogram: histogram,
     qkey: qkey,
