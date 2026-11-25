@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>상식 1000제</title>
+<title>알쓸신잡</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@500;700;900&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -267,7 +267,7 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
 <body>
 <div class="wrap">
   <header class="mast">
-    <h1>상식 1000제<small id="mast-sub">전 분야 상식</small></h1>
+    <h1>알쓸신잡<small id="mast-sub">전 분야 지식</small></h1>
     <div class="meta" id="mast-meta">문제 은행 불러오는 중</div>
   </header>
 
@@ -306,7 +306,7 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
       <details class="more">
         <summary>규칙 · 출제 분야 보기</summary>
         <div class="more-body">
-          <p class="lede">문제 은행 <b id="s-total">1,024</b>문항(<span id="s-range">전 분야</span>)에서 매번 무작위로 뽑습니다. 한 분야에서 최대 2문항까지만 나오고, 최근에 푼 문제는 뒤로 밀립니다.</p>
+          <p class="lede">문제 은행 <b id="s-total">1,500</b>문항(<span id="s-range">전 분야</span>)에서 매번 무작위로 뽑습니다. 한 분야에서 최대 2문항까지만 나오고, 최근에 푼 문제는 뒤로 밀립니다.</p>
           <div class="cats" id="s-cats"></div>
           <ul class="rules">
             <li>보기를 고르면 바로 정답과 해설, 다른 응시자들이 각 보기를 고른 비율이 나옵니다. 고른 답은 바꿀 수 없습니다.</li>
@@ -379,7 +379,7 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
     </div>
   </section>
 
-  <p class="foot">문항 1,024개 · 20개 분야 · 보기 순서는 매번 섞입니다</p>
+  <p class="foot">문항 1,500개 · 20개 분야 · 보기 순서는 매번 섞입니다</p>
 </div>
 
 <script src="config.js"></script>
@@ -408,7 +408,7 @@ var EMBEDDED = window.QUIZ_BANK;
   function save(key, val) {
     try { localStorage.setItem("quiz1000v2:" + key, JSON.stringify(val)); } catch (e) {}
   }
-  var seen = load("seen3", []);     // recently served question ids, newest last (문제 은행 교체 후 새로 시작)
+  var seen = load("seen4", []);     // 최근에 낸 문제의 문제 글(순서가 바뀌어도 유지), 최신이 끝
   var rounds = load("rounds", 0);
   var best = load("best", null);
   var DEVICE = load("device", null);  // 랭킹전 하루 한 번 확인용 기기 번호 (무작위)
@@ -428,9 +428,15 @@ var EMBEDDED = window.QUIZ_BANK;
     var c = load("cur", null);
     if (!c || !c.ids || c.ids.length !== N || !c.orders || !c.picks) return null;
     if (!(Date.now() - c.startAt < 3 * 86400 * 1000)) { clearCur(); return null; }
+    if (STATS && c.keys && c.keys.length === N) {
+      // 문제 순서가 바뀌어도 내용(qkey)으로 같은 문제를 다시 찾음
+      var ids = c.keys.map(idOfKey);
+      if (ids.some(function (x) { return x == null; })) { clearCur(); return null; }   // 문제가 빠지거나 고쳐짐
+      c.ids = ids;
+      return c;
+    }
     for (var i = 0; i < N; i++) {
-      var r = DB.q[c.ids[i]];
-      if (!r || (STATS && c.keys && c.keys[i] !== STATS.qkey(r))) { clearCur(); return null; }   // 문제 은행이 바뀜
+      if (!DB.q[c.ids[i]]) { clearCur(); return null; }
     }
     return c;
   }
@@ -447,7 +453,8 @@ var EMBEDDED = window.QUIZ_BANK;
 
   // Pick N ids: unseen first (random within each group), at most CAP per category.
   function pickIds() {
-    var seenSet = {}; seen.forEach(function (id, i) { seenSet[id] = i + 1; });
+    var seenAt = {}; seen.forEach(function (t, i) { seenAt[t] = i + 1; });
+    var seenSet = {}; DB.q.forEach(function (r, i) { if (seenAt[r[1]]) seenSet[i] = seenAt[r[1]]; });
     var ids = DB.q.map(function (_, i) { return i; });
     shuffle(ids);
     ids.sort(function (a, b) { return (seenSet[a] || 0) - (seenSet[b] || 0); });
@@ -769,7 +776,7 @@ var EMBEDDED = window.QUIZ_BANK;
   function grade(score, total) {
     var r = score / total;
     if (r >= 0.9) return "걸어 다니는 백과사전";
-    if (r >= 0.75) return "상식 상위권";
+    if (r >= 0.75) return "지식 상위권";
     if (r >= 0.55) return "평균 이상";
     if (r >= 0.35) return "조금만 더";
     return "다음 회차를 노려 보세요";
@@ -788,10 +795,10 @@ var EMBEDDED = window.QUIZ_BANK;
       clearCur();
       rounds += 1; save("rounds", rounds);
       if (best == null || right > best) { best = right; save("best", best); }
-      var ids = round.map(function (q) { return q.id; });
-      seen = seen.filter(function (id) { return ids.indexOf(id) === -1; }).concat(ids);
-      if (seen.length > 700) seen = seen.slice(seen.length - 700);
-      save("seen3", seen);
+      var texts = round.map(function (q) { return q.text; });
+      seen = seen.filter(function (t) { return texts.indexOf(t) === -1; }).concat(texts);
+      if (seen.length > 1000) seen = seen.slice(seen.length - 1000);
+      save("seen4", seen);
     }
 
     $("r-round").textContent = RK ? "랭킹전 " + total + "문항" : isRetry ? "오답 재도전" : "제 " + rounds + "회";
