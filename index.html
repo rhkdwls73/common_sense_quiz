@@ -100,6 +100,8 @@ button:focus-visible, .opt:focus-visible { outline: 3px solid var(--omr); outlin
 .cell.cur { background: var(--omr-soft); }
 .cell.ok .b { background: var(--good); border-color: var(--good); }
 .cell.no .b { background: var(--bad); border-color: var(--bad); }
+.cell.wait .b { background: var(--omr-soft); }
+.opt.picked { border-color: var(--omr); background: var(--omr-soft); }
 @media (max-width: 520px) { .strip { grid-template-columns: repeat(10, 1fr); row-gap: 6px; } }
 
 /* Question */
@@ -286,7 +288,7 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
         </div>
         <div class="mode rk" id="s-ranked" hidden>
           <div class="mode-top"><h2>랭킹전</h2><span class="pill hot">하루 한 번</span></div>
-          <p class="mode-desc">문항당 <b>5초</b> · 닉네임 걸고 순위 경쟁</p>
+          <p class="mode-desc">문항당 <b>7초</b> · 닉네임 걸고 순위 경쟁</p>
           <input class="rk-input" id="rk-nick" maxlength="12" autocomplete="nickname" placeholder="닉네임 (1~12자)" aria-label="닉네임">
           <div class="rk-sizes" id="rk-sizes"></div>
           <span class="hint" id="rk-status"></span>
@@ -312,7 +314,7 @@ h2 { font-family: var(--font-display); font-size: 18px; margin: 0; text-wrap: ba
             <li>보기를 고르면 바로 정답과 해설, 다른 응시자들이 각 보기를 고른 비율이 나옵니다. 고른 답은 바꿀 수 없습니다.</li>
             <li>키보드: <span class="kbd">1</span>~<span class="kbd">4</span> 보기 선택, <span class="kbd">Enter</span> 다음 문제</li>
             <li>시작한 판은 모두 기록됩니다. 중간에 그만두거나 창을 닫으면 그때까지 맞힌 개수로 기록되고, 새로고침하면 이어서 풀 수 있습니다.</li>
-            <li>랭킹전은 문항당 5초(10문항 50초 · 20문항 100초 · 30문항 150초 · 40문항 200초)로, 시간이 끝나면 안 푼 문항은 오답입니다. 문항 수마다 하루 한 번 도전할 수 있고, 문제는 도전마다 무작위로 나옵니다.</li>
+            <li>랭킹전은 문항당 7초(10문항 70초 · 20문항 140초 · 30문항 210초 · 40문항 280초)로, 시간이 끝나면 안 푼 문항은 오답입니다. 문항 수마다 하루 한 번 도전할 수 있고, 문제는 도전마다 무작위로 나옵니다.</li>
             <li>랭킹전은 맞힌 개수가 같으면 더 빨리 끝낸 사람이 앞 순위이고, 역대 1~3위는 명예의 전당에 남습니다.</li>
           </ul>
           <a class="link" href="stats.html" id="s-statslink" hidden>전체 응시 통계 보기</a>
@@ -392,14 +394,14 @@ var EMBEDDED = window.QUIZ_BANK;
 (function () {
   "use strict";
   var N = 20, CAP = 2, MARKS = ["①", "②", "③", "④"];
-  var DB = null;           // {c:[...], q:[[cat, text, answer, w1, w2, w3], ...]}
-  var round = [];          // current questions: {id, cat, text, opts[4], ans}
+  var DB = null;           // {c:[...], q:[[cat, text, 보기A, 보기B, 보기C, 보기D, qid], ...]} — 정답은 서버만 앎
+  var round = [];          // current questions: {id, cat, text, opts[4], order, key, ans(서버가 알려 준 뒤), exp, n}
+  var finishing = false;
   var idx = 0, picks = [], startAt = 0, isRetry = false;
   var rid = null, ridP = Promise.resolve(null), ridErr = "", pending = [];   // 서버 판 번호와 보내는 중인 답
   var STATS = window.QuizStats && window.QuizStats.enabled ? window.QuizStats : null;
-  var QS = null;           // 문항별 집계 캐시 {qkey: [정답, 오답1, 오답2, 오답3]}
   var RK = null;           // 랭킹전 진행 중이면 {id, size, limit, deadlineAt, day}
-  var RK_SIZES = [10, 20, 30, 40], RK_SEC = 5, timerId = null;
+  var RK_SIZES = [10, 20, 30, 40], RK_SEC = 7, timerId = null;
 
   // ---------- storage (best effort) ----------
   function load(key, fallback) {
@@ -421,23 +423,18 @@ var EMBEDDED = window.QUIZ_BANK;
   function saveCur() {
     if (isRetry || RK || !round.length) return;
     save("cur", { rid: rid, ids: round.map(function (q) { return q.id; }), orders: round.map(function (q) { return q.order; }),
-      keys: round.map(function (q) { return q.key; }), picks: picks, startAt: startAt });
+      keys: round.map(function (q) { return q.key; }), picks: picks, startAt: startAt,
+      res: round.map(function (q) { return q.cpub == null ? null : [q.cpub, q.exp, q.n]; }) });
   }
   function clearCur() { try { localStorage.removeItem("quiz1000v2:cur"); } catch (e) {} }
   function savedCur() {
     var c = load("cur", null);
     if (!c || !c.ids || c.ids.length !== N || !c.orders || !c.picks) return null;
     if (!(Date.now() - c.startAt < 3 * 86400 * 1000)) { clearCur(); return null; }
-    if (STATS && c.keys && c.keys.length === N) {
-      // 문제 순서가 바뀌어도 내용(qkey)으로 같은 문제를 다시 찾음
-      var ids = c.keys.map(idOfKey);
-      if (ids.some(function (x) { return x == null; })) { clearCur(); return null; }   // 문제가 빠지거나 고쳐짐
-      c.ids = ids;
-      return c;
-    }
-    for (var i = 0; i < N; i++) {
-      if (!DB.q[c.ids[i]]) { clearCur(); return null; }
-    }
+    // 문제 순서가 바뀌어도 문항 번호(qid)로 같은 문제를 다시 찾음
+    var ids = (c.keys || []).map(idOfKey);
+    if (ids.length !== N || ids.some(function (x) { return x == null; })) { clearCur(); return null; }   // 문제가 빠지거나 고쳐짐
+    c.ids = ids;
     return c;
   }
 
@@ -473,30 +470,23 @@ var EMBEDDED = window.QUIZ_BANK;
   function build(ids, orders) {
     return ids.map(function (id, n) {
       var r = DB.q[id];
-      var order = orders ? orders[n].slice() : shuffle([0, 1, 2, 3]);   // 화면 순서 → 문제 은행 순서(0 = 정답)
+      var order = orders ? orders[n].slice() : shuffle([0, 1, 2, 3]);   // 화면 순서 → 공개 보기 순서
       return {
-        id: id, cat: DB.c[r[0]], text: r[1], ans: order.indexOf(0), order: order,
+        id: id, cat: DB.c[r[0]], text: r[1], order: order,
         opts: order.map(function (k) { return r[2 + k]; }),
-        key: STATS ? STATS.qkey(r) : null, n: null, exp: r[6] || ""
+        key: r[6], ans: null, cpub: null, n: null, exp: "", err: ""
       };
     });
   }
 
-  // ---------- 랭킹전: 도전마다 무작위로 문제 뽑기 (한 분야에서 10·20문항은 1개, 30·40문항은 2개까지) ----------
-  function rankedIds(size) {
-    var cap0 = size <= 20 ? 1 : 2, ids = shuffle(DB.q.map(function (_, i) { return i; })), out = [], per = {};
-    for (var cap = cap0; out.length < size && cap <= size; cap++) {
-      for (var k = 0; k < ids.length && out.length < size; k++) {
-        var id = ids[k], c = DB.q[id][0];
-        if (out.indexOf(id) !== -1 || (per[c] || 0) >= cap) continue;
-        per[c] = (per[c] || 0) + 1; out.push(id);
-      }
-    }
-    return shuffle(out);
+  // 서버가 알려 준 정답(공개 보기 번호)·해설·선택 수를 문제에 반영
+  function setResult(q, correct, exp, n) {
+    if (correct == null) return;
+    q.cpub = correct; q.ans = q.order.indexOf(correct); q.exp = exp || ""; if (n) q.n = n; q.err = "";
   }
   var KEYIDX = null;
   function idOfKey(k) {
-    if (!KEYIDX) { KEYIDX = {}; DB.q.forEach(function (r, i) { KEYIDX[STATS.qkey(r)] = i; }); }
+    if (!KEYIDX) { KEYIDX = {}; DB.q.forEach(function (r, i) { KEYIDX[r[6]] = i; }); }
     return KEYIDX[k];
   }
 
@@ -537,15 +527,14 @@ var EMBEDDED = window.QUIZ_BANK;
     save("nick", nick);
     var btns = $("rk-sizes").querySelectorAll("button"); btns.forEach(function (b) { b.disabled = true; });
     msg.textContent = "문제를 받는 중…";
-    var keys = rankedIds(size).map(function (id) { return STATS.qkey(DB.q[id]); });
-    STATS.rankedStart(size, nick, DEVICE, keys).then(function (r) {
-      var ids = r.keys.map(idOfKey);
+    STATS.rankedStart(size, nick, DEVICE).then(function (r) {    // 문제는 서버가 뽑음
+      var ids = (r.qids || []).map(idOfKey);
       if (ids.some(function (x) { return x == null; })) throw new Error("문제 은행이 바뀌었습니다. 페이지를 새로고침해 주세요");
       msg.textContent = "";
       var orders = load("rko:" + r.id, null);
       if (!orders || orders.length !== ids.length) orders = null;
       begin(ids, false, null, { id: r.id, size: r.size, limit: Number(r.limit), day: r.day,
-        deadlineAt: Date.now() + Number(r.remaining_ms), answers: r.answers, orders: orders });
+        deadlineAt: Date.now() + Number(r.remaining_ms), picks: r.picks, correct: r.correct, exps: r.exps, orders: orders });
     }).catch(function (err) {
       msg.className = "hint err"; msg.textContent = err.message;
       loadRankedStatus(); renderRanked();
@@ -611,7 +600,7 @@ var EMBEDDED = window.QUIZ_BANK;
     $("s-round").textContent = "제 " + (rounds + 1) + "회";
     $("s-best").textContent = best == null ? "기록 없음" : best + " / " + N;
     $("mast-meta").textContent = DB.q.length.toLocaleString("ko-KR") + "문항 · " + DB.c.length + "개 분야";
-    $("b-start").disabled = false;
+    $("b-start").disabled = !STATS;            // 채점은 서버가 함
     $("s-statslink").hidden = !STATS;
     $("s-status").className = "hint";
     var cur = savedCur();
@@ -625,27 +614,28 @@ var EMBEDDED = window.QUIZ_BANK;
       $("b-new").hidden = true;
       $("s-status").textContent = "";
     }
+    if (!STATS) { $("s-status").className = "hint err"; $("s-status").textContent = "채점 서버가 설정되지 않았습니다. config.js를 확인해 주세요."; }
     renderRanked(); loadRankedStatus(); startLive();
   }
 
   // ---------- quiz view ----------
-  function refreshQS() {
-    if (!STATS) return;
-    STATS.questionStats().then(function (m) { QS = m || {}; }).catch(function () {});
-  }
-
   function begin(ids, retry, resume, ranked) {
     isRetry = !!retry;
-    stopTimer(); RK = ranked || null;
-    refreshQS();
+    stopTimer(); RK = ranked || null; finishing = false;
     round = build(ids, (resume && resume.orders) || (ranked && ranked.orders)); idx = 0; picks = []; startAt = Date.now();
     pending = []; rid = null; ridErr = ""; ridP = Promise.resolve(null);
     if (RK) {
       save("rko:" + RK.id, round.map(function (q) { return q.order; }));
-      picks = (RK.answers || []).map(function (a, i) { return a == null ? null : round[i].order.indexOf(a); });
+      picks = round.map(function (q, i) {
+        var p = (RK.picks || [])[i];
+        if (p == null) return null;
+        setResult(q, (RK.correct || [])[i], (RK.exps || [])[i]);
+        return q.order.indexOf(p);
+      });
       startAt = RK.deadlineAt - RK.limit * 1000;
     } else if (resume) {
       picks = resume.picks.slice(); startAt = resume.startAt; rid = resume.rid || null; ridP = Promise.resolve(rid);
+      round.forEach(function (q, i) { var x = (resume.res || [])[i]; if (x) setResult(q, x[0], x[1], x[2]); });
       if (!rid) ridErr = "이 판은 시작할 때 통계 서버에 연결하지 못했습니다";
     } else if (!isRetry && STATS) {
       ridP = STATS.startRound(round.map(function (q) { return q.key; }))
@@ -658,8 +648,10 @@ var EMBEDDED = window.QUIZ_BANK;
       ? "repeat(" + Math.min(10, round.length) + ", 1fr)" : "repeat(" + Math.min(20, round.length) + ", 1fr)";
     round.forEach(function (q, i) {
       var c = el("div", "cell"); c.appendChild(el("span", "n", String(i + 1))); c.appendChild(el("span", "b")); strip.appendChild(c);
-      if (picks[i] != null) c.classList.add(picks[i] === q.ans ? "ok" : "no");
+      if (picks[i] != null) c.classList.add(q.ans == null ? "wait" : picks[i] === q.ans ? "ok" : "no");
     });
+    // 이어 풀 때 채점 결과를 못 받은 답은 다시 보냄 (서버는 처음 답을 유지)
+    round.forEach(function (q, i) { if (picks[i] != null && q.ans == null) submit(q, i, picks[i], 0); });
     while (idx < round.length && picks[idx] != null) idx++;
     if (idx >= round.length || (RK && timeLeft() <= 0)) { finish(false, RK && timeLeft() <= 0 ? "timeout" : null); return; }      // 다 풀고 결과 보기 전에 나갔던 판
     show("v-quiz");
@@ -693,45 +685,55 @@ var EMBEDDED = window.QUIZ_BANK;
   }
 
   function choose(i) {
-    if (picks[idx] != null || (RK && timeLeft() <= 0)) return;
-    var q = round[idx]; picks[idx] = i;
+    if (finishing || picks[idx] != null || (RK && timeLeft() <= 0)) return;
+    var q = round[idx], at = idx; picks[at] = i;
     saveCur();
     var btns = $("q-opts").children;
+    for (var k = 0; k < btns.length; k++) btns[k].disabled = true;
+    btns[i].classList.add("picked"); btns[i].querySelector(".mark").textContent = "내 답";
+    $("q-strip").children[at].classList.add("wait");
+    var next = $("b-next"); next.disabled = false; next.focus({ preventScroll: true });
+    waitCrowd(at, "채점 중…");
+    submit(q, at, i, 0);
+  }
+
+  // 답을 서버에 보내 채점 받기 (정답·해설은 서버만 앎). 실패하면 두 번까지 다시 시도
+  function submit(q, at, i, tries) {
+    var choice = q.order[i];
+    var req = RK ? STATS.rankedAnswer(RK.id, at, choice)
+      : isRetry ? STATS.answer(q.key, choice, null, null, true)
+      : ridP.then(function (r) { return STATS.answer(q.key, choice, r, at); });
+    var done = req.then(function (res) {
+      setResult(q, res.correct, res.exp, res.n);
+      if (res.choice != null && q.order.indexOf(res.choice) !== picks[at]) picks[at] = q.order.indexOf(res.choice);  // 서버에 먼저 저장된 답
+      saveCur(); paintAnswer(at); updateTally();
+    }).catch(function (err) {
+      if (tries < 2 && !(RK && timeLeft() <= 0)) {
+        return new Promise(function (ok) { setTimeout(ok, 700); }).then(function () { return submit(q, at, i, tries + 1); });
+      }
+      q.err = err.message; paintAnswer(at);
+    });
+    if (!tries) pending.push(done);
+    return done;
+  }
+
+  function paintAnswer(at) {
+    var q = round[at], i = picks[at], cell = $("q-strip").children[at];
+    if (cell) {
+      cell.classList.remove("wait");
+      if (q.ans != null) cell.classList.add(i === q.ans ? "ok" : "no"); else if (i != null) cell.classList.add("wait");
+    }
+    if (at !== idx || $("v-quiz").hidden) return;     // 이미 다음 문제로 넘어갔으면 그리지 않음
+    if (q.ans == null) { waitCrowd(at, q.err ? "채점하지 못했습니다 (" + q.err + ")" : "채점 중…"); return; }
+    var btns = $("q-opts").children;
     for (var k = 0; k < btns.length; k++) {
-      btns[k].disabled = true;
+      btns[k].classList.remove("picked"); btns[k].querySelector(".mark").textContent = "";
       if (k === q.ans) { btns[k].classList.add("right"); btns[k].querySelector(".mark").textContent = "정답"; }
       else if (k === i) { btns[k].classList.add("wrong"); btns[k].querySelector(".mark").textContent = "내 답"; }
       else btns[k].classList.add("dim");
     }
-    $("q-strip").children[idx].classList.add(i === q.ans ? "ok" : "no");
-    var next = $("b-next"); next.disabled = false; next.focus({ preventScroll: true });
-    updateTally();
     if (q.exp) { var ex = $("q-exp"); ex.textContent = ""; ex.append(el("b", null, "해설"), q.exp); ex.hidden = false; }
-    crowd(q, i);
-  }
-
-  // ---------- 다른 응시자 선택 비율 ----------
-  function crowd(q, i) {
-    if (!STATS) return;
-    var at = idx, mine = q.order[i];
-    var cached = QS && QS[q.key] ? QS[q.key].slice() : null;
-    if (isRetry) {                      // 오답 재도전은 집계에 넣지 않고 기존 값만 보여 줌
-      if (cached) { q.n = cached; paintCrowd(q, at); }
-      else waitCrowd(at, "이 문제는 아직 집계된 응답이 없습니다.");
-      return;
-    }
-    if (cached) { cached[mine]++; q.n = cached; paintCrowd(q, at); }   // 서버 응답 전 미리 표시
-    else waitCrowd(at, "다른 응시자 선택 비율을 불러오는 중…");
-    var req = RK ? STATS.rankedAnswer(RK.id, at, mine)
-      : ridP.then(function (r) { return STATS.answer(q.key, mine, r, at); });
-    pending.push(req.catch(function () {}));
-    req.then(function (res) {
-      if (!res || !res.n) return;
-      q.n = res.n; if (QS) QS[q.key] = res.n.slice();
-      paintCrowd(q, at);
-    }).catch(function () {
-      if (!q.n) waitCrowd(at, "선택 비율을 불러오지 못했습니다.");
-    });
+    paintCrowd(q, at);
   }
 
   function waitCrowd(at, msg) {
@@ -743,10 +745,12 @@ var EMBEDDED = window.QUIZ_BANK;
     if (pct >= 80) return "쉬움"; if (pct >= 55) return "보통"; if (pct >= 30) return "어려움"; return "매우 어려움";
   }
 
+  // 다른 응시자 선택 비율 (서버가 준 보기별 선택 수, 공개 보기 순서)
   function paintCrowd(q, at) {
-    if (at !== idx || $("v-quiz").hidden) return;    // 이미 다음 문제로 넘어갔으면 그리지 않음
-    var r = STATS.rate(q.n);
-    if (!r.total) return;
+    if (at !== idx || $("v-quiz").hidden) return;
+    var r = q.n ? STATS.rateOf(q.n, q.cpub) : { total: 0 };
+    var p = $("q-rate");
+    if (!r.total) { p.hidden = false; p.textContent = "이 문제는 아직 집계된 응답이 없습니다."; return; }
     var btns = $("q-opts").children;
     for (var k = 0; k < btns.length; k++) {
       var c = q.n[q.order[k]] || 0, pct = c / r.total * 100;
@@ -754,7 +758,7 @@ var EMBEDDED = window.QUIZ_BANK;
       btns[k].style.setProperty("--p", pct.toFixed(1) + "%");
       btns[k].querySelector(".pct").textContent = Math.round(pct) + "%";
     }
-    var p = $("q-rate"); p.hidden = false; p.textContent = "";
+    p.hidden = false; p.textContent = "";
     p.append("이 문제 정답률 ", el("b", null, Math.round(r.pct) + "%"), " · ",
       el("span", "lv", level(r.pct)), " · 응답 " + r.total.toLocaleString("ko-KR") + "회"
       + (r.total < 10 ? " (아직 응답이 적어요)" : ""));
@@ -762,7 +766,7 @@ var EMBEDDED = window.QUIZ_BANK;
 
   function updateTally() {
     var answered = picks.filter(function (p) { return p != null; }).length;
-    var right = round.filter(function (q, i) { return picks[i] === q.ans; }).length;
+    var right = round.filter(function (q, i) { return q.ans != null && picks[i] === q.ans; }).length;
     $("q-tally").innerHTML = "";
     $("q-tally").append("맞힌 문항 ", el("b", null, String(right)), " / " + answered + "  ·  남은 문항 " + (round.length - answered));
   }
@@ -783,9 +787,16 @@ var EMBEDDED = window.QUIZ_BANK;
   }
 
   function finish(quit, why) {
-    stopTimer();
+    if (finishing) return;
+    finishing = true; stopTimer();
     var elapsed = RK ? Math.min(RK.limit * 1000, Date.now() - startAt) : Date.now() - startAt;
-    var right = round.filter(function (q, i) { return picks[i] === q.ans; }).length;
+    var waiting = round.some(function (q, i) { return picks[i] != null && q.ans == null; });
+    if (waiting) { $("q-rate").hidden = false; $("q-rate").textContent = "마지막 답을 채점하는 중…"; }
+    Promise.all(pending).then(function () { finishNow(quit, why, elapsed); });
+  }
+
+  function finishNow(quit, why, elapsed) {
+    var right = round.filter(function (q, i) { return q.ans != null && picks[i] === q.ans; }).length;
     var total = round.length;
     var skipped = round.filter(function (q, i) { return picks[i] == null; }).length;
 
@@ -817,7 +828,7 @@ var EMBEDDED = window.QUIZ_BANK;
 
     // by category
     var by = {};
-    round.forEach(function (q, i) { by[q.cat] = by[q.cat] || [0, 0]; by[q.cat][1]++; if (picks[i] === q.ans) by[q.cat][0]++; });
+    round.forEach(function (q, i) { by[q.cat] = by[q.cat] || [0, 0]; by[q.cat][1]++; if (q.ans != null && picks[i] === q.ans) by[q.cat][0]++; });
     var bd = $("r-bd"); bd.textContent = "";
     Object.keys(by).sort(function (a, b) { return (by[a][0] / by[a][1]) - (by[b][0] / by[b][1]) || a.localeCompare(b, "ko"); })
       .forEach(function (k) {
@@ -827,25 +838,25 @@ var EMBEDDED = window.QUIZ_BANK;
 
     // review, wrong first
     var order = round.map(function (q, i) { return i; }).sort(function (a, b) {
-      return (picks[a] === round[a].ans) - (picks[b] === round[b].ans) || a - b;
+      return (round[a].ans != null && picks[a] === round[a].ans) - (round[b].ans != null && picks[b] === round[b].ans) || a - b;
     });
     var rv = $("r-review"); rv.textContent = "";
     order.forEach(function (i) {
-      var q = round[i], ok = picks[i] === q.ans;
+      var q = round[i], ok = q.ans != null && picks[i] === q.ans;
       var d = el("div", "rv" + (ok ? "" : " x"));
-      var rr = q.n && STATS ? STATS.rate(q.n) : null;
-      d.appendChild(el("div", "meta", "문 " + (i + 1) + " · " + q.cat + " · " + (ok ? "정답" : picks[i] == null ? "안 푼 문항" : "오답")
+      var rr = q.n && q.cpub != null ? STATS.rateOf(q.n, q.cpub) : null;
+      d.appendChild(el("div", "meta", "문 " + (i + 1) + " · " + q.cat + " · " + (ok ? "정답" : picks[i] == null ? "안 푼 문항" : q.ans == null ? "채점 못 함" : "오답")
         + (rr && rr.total ? " · 전체 정답률 " + Math.round(rr.pct) + "% (" + rr.total.toLocaleString("ko-KR") + "회)" : "")));
       d.appendChild(el("div", "q", q.text));
       var a = el("div", "ans");
       if (!ok && picks[i] != null) a.appendChild(el("span", "m", "내 답: " + q.opts[picks[i]]));
-      a.appendChild(el("span", "c", "정답: " + q.opts[q.ans]));
+      a.appendChild(el("span", "c", q.ans != null ? "정답: " + q.opts[q.ans] : "정답은 풀어 본 문항만 공개됩니다 (틀린 문항 다시 풀기에서 확인)"));
       d.appendChild(a);
       if (q.exp) d.appendChild(el("div", "exp", q.exp));
       rv.appendChild(d);
     });
 
-    var wrongIds = round.filter(function (q, i) { return picks[i] !== q.ans; }).map(function (q) { return q.id; });
+    var wrongIds = round.filter(function (q, i) { return q.ans == null || picks[i] !== q.ans; }).map(function (q) { return q.id; });
     var retry = $("b-retry");
     retry.disabled = wrongIds.length === 0;
     retry.textContent = wrongIds.length ? "틀린 " + wrongIds.length + "문항 다시 풀기" : "틀린 문항 없음";
@@ -888,7 +899,7 @@ var EMBEDDED = window.QUIZ_BANK;
     return STATS.endRound(r, quit).catch(function (err) {
       if (quit || String(err.message).indexOf("다 풀지") === -1) throw err;
       return Promise.all(round.map(function (q, i) {
-        return picks[i] == null ? null : STATS.answer(q.key, q.order[picks[i]], r, i).catch(function () {});
+        return picks[i] == null ? null : STATS.answer(q.key, q.order[picks[i]], r, i).catch(function () {});   // 공개 보기 번호
       })).then(function () { return STATS.endRound(r, quit); });
     });
   }
@@ -966,7 +977,7 @@ var EMBEDDED = window.QUIZ_BANK;
     var answered = picks.filter(function (p) { return p != null; }).length;
     if (isRetry) { renderStart(); show("v-start"); return; }
     if (RK) {
-      var ok = round.filter(function (q, i) { return picks[i] === q.ans; }).length;
+      var ok = round.filter(function (q, i) { return q.ans != null && picks[i] === q.ans; }).length;
       if (!confirm("지금 그만두면 " + ok + "개 맞힌 것으로 기록되고, 오늘은 " + round.length + "문항 랭킹전에 다시 도전할 수 없습니다. 그만둘까요?")) return;
       finish(true); return;
     }
@@ -974,7 +985,7 @@ var EMBEDDED = window.QUIZ_BANK;
       ridP.then(function (r) { if (r) return STATS.endRound(r, true); }).catch(function () {});
       clearCur(); renderStart(); show("v-start"); return;
     }
-    var right = round.filter(function (q, i) { return picks[i] === q.ans; }).length;
+    var right = round.filter(function (q, i) { return q.ans != null && picks[i] === q.ans; }).length;
     if (!confirm("지금 그만두면 이 판은 " + right + "점으로 기록됩니다 (안 푼 " + (round.length - answered)
       + "문항은 오답 처리). 그만둘까요?")) return;
     finish(true);
@@ -987,7 +998,7 @@ var EMBEDDED = window.QUIZ_BANK;
 
   $("s-status").textContent = "문제 은행을 불러오는 중입니다.";
   Promise.resolve(EMBEDDED)
-    .then(function (data) { if (!data || !data.q) throw new Error("no bank"); DB = data; renderStart(); refreshQS(); })
+    .then(function (data) { if (!data || !data.q) throw new Error("no bank"); DB = data; renderStart(); })
     .catch(function () {
       $("s-status").className = "hint err";
       $("s-status").textContent = "문제 은행을 불러오지 못했습니다. 페이지를 새로고침해 주세요.";

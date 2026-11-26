@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>상식 1000제 응시 통계</title>
+<title>알쓸신잡 응시 통계</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@500;700;900&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -227,7 +227,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 <body>
 <div class="wrap">
   <header class="mast">
-    <h1>응시 통계<small>상식 1000제 · 20문항 기준</small></h1>
+    <h1>응시 통계<small>알쓸신잡 · 20문항 기준</small></h1>
     <a class="link" href="index.html">퀴즈 풀러 가기</a>
   </header>
 
@@ -270,7 +270,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
         <div><h3 id="rk-today-h">오늘 순위</h3><div id="rk-today"></div></div>
         <div><h3>명예의 전당 · 역대 1~3위</h3><div id="rk-hall"></div></div>
       </div>
-      <p class="hint">문항당 5초 · 문항 수마다 하루 한 번 · 맞힌 개수가 같으면 더 빨리 끝낸 사람이 앞 순위입니다. <a class="link" href="index.html">랭킹전 도전하기</a></p>
+      <p class="hint">문항당 7초 · 문항 수마다 하루 한 번 · 맞힌 개수가 같으면 더 빨리 끝낸 사람이 앞 순위입니다. <a class="link" href="index.html">랭킹전 도전하기</a></p>
     </div>
   </section>
   <section class="sheet" id="qs-sec">
@@ -287,7 +287,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
           <option value="many">응답 많은 순</option>
           <option value="no">문항 번호 순</option>
         </select>
-        <input type="search" id="qs-find" placeholder="문제·보기 검색" aria-label="문제·보기 검색">
+        <input type="search" id="qs-find" placeholder="문제 검색" aria-label="문제 검색">
         <label><input type="checkbox" id="qs-only" checked> 응답 있는 문항만</label>
       </div>
       <div class="qs-list" id="qs-list"></div>
@@ -295,7 +295,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
       <div class="actions"><button class="btn ghost" id="qs-more" hidden>더 보기</button></div>
     </div>
   </section>
-  <p class="foot">문항별 정답률은 보기를 고를 때마다 집계합니다(오답 재도전 제외) · 문제나 보기를 고치면 그 문항은 새로 집계됩니다</p>
+  <p class="foot">문항별 정답률은 보기를 고를 때마다 집계합니다(오답 재도전 제외) · 정답과 해설은 문제를 풀면 볼 수 있습니다 · 문제나 보기를 고치면 그 문항은 새로 집계됩니다</p>
   <p class="foot">순위는 점수가 높은 순, 같은 점수면 빨리 푼 순입니다 · 점수 분포는 퀴즈를 끝까지 푼 기록만 집계합니다 · 오답 재도전은 제외 · 점수, 소요 시간, 고른 보기 외에는 저장하지 않습니다</p>
 </div>
 
@@ -354,7 +354,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
   var BANK = window.QUIZ_BANK, ITEMS = null, SHOWN = 0, PAGE = 20;
   function items(map) {
     return BANK.q.map(function (r, i) {
-      var n = map[S.qkey(r)] || [0, 0, 0, 0], rt = S.rate(n);
+      var n = map[r[6]] || [0, 0], rt = S.rate(n);          // [맞힌 수, 틀린 수]
       return { no: i + 1, row: r, n: n, total: rt.total, pct: rt.pct };
     });
   }
@@ -364,7 +364,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
     var list = ITEMS.filter(function (it) {
       if (cat !== "" && it.row[0] !== Number(cat)) return false;
       if (only && !it.total) return false;
-      if (f && it.row.slice(1).join(" ").toLowerCase().indexOf(f) === -1) return false;
+      if (f && String(it.row[1]).toLowerCase().indexOf(f) === -1) return false;
       return true;
     });
     function byPct(a, b) {   // 응답 없는 문항은 맨 뒤
@@ -388,20 +388,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
       it.total ? "정답률 " + Math.round(it.pct) + "%" : "-");
     top.appendChild(rt); d.appendChild(top);
     var q = document.createElement("div"); q.className = "qs-q"; q.textContent = it.row[1]; d.appendChild(q);
-    var opts = document.createElement("div"); opts.className = "qs-opts";
-    [0, 1, 2, 3].map(function (k) { return { k: k, c: it.n[k] || 0 }; })
-      .sort(function (a, b) { return b.c - a.c || a.k - b.k; })
-      .forEach(function (o) {
-        var p = it.total ? o.c / it.total * 100 : 0;
-        var row = document.createElement("div"); row.className = "qs-o" + (o.k === 0 ? " ok" : "");
-        var lab = document.createElement("span"); lab.className = "lab";
-        var bar = document.createElement("i"); bar.style.width = p.toFixed(1) + "%";
-        lab.appendChild(bar); lab.appendChild(sp(null, (o.k === 0 ? "정답 · " : "") + it.row[2 + o.k]));
-        var b = document.createElement("b"); b.textContent = it.total ? Math.round(p) + "%" : "";
-        row.appendChild(lab); row.appendChild(b); opts.appendChild(row);
-      });
-    d.appendChild(opts);
-    if (it.row[6]) { var ex = document.createElement("div"); ex.className = "qs-exp"; ex.textContent = "해설 · " + it.row[6]; d.appendChild(ex); }
+    // 정답과 보기별 선택 비율은 문제를 풀어야 볼 수 있도록 여기서는 보여 주지 않음
     return d;
   }
   function renderQS(reset) {

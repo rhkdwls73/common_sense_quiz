@@ -1,4 +1,4 @@
--- 상식 1000제 응시 통계용 설정
+-- 알쓸신잡 응시 통계용 설정
 -- Supabase 대시보드 → SQL Editor → New query 에 전체를 붙여 넣고 Run 하면 됩니다.
 -- 여러 번 실행해도 안전합니다.
 
@@ -379,7 +379,7 @@ revoke all on table public.ranked_runs from anon, authenticated;
 create or replace function public.ranked_today() returns date
 language sql stable as $$ select (now() at time zone 'Asia/Seoul')::date $$;
 create or replace function public.ranked_limit(p_size integer) returns numeric
-language sql immutable as $$ select p_size * 5.0 $$;
+language sql immutable as $$ select p_size * 7.0 $$;
 
 -- (내부용) 제한 시간이 지난 도전을 그때까지 맞힌 개수로 마감
 create or replace function public.ranked_settle()
@@ -609,3 +609,318 @@ grant execute on function public.ranked_answer(uuid, integer, integer) to anon, 
 grant execute on function public.ranked_board(integer, date, integer) to anon, authenticated;
 grant execute on function public.ranked_end(uuid) to anon, authenticated;
 grant execute on function public.ranked_status(text) to anon, authenticated;
+
+-- =====================================================================
+-- 7) 정답은 서버에만 (2026-11 개편)
+--    · 공개 문제 은행(questions.js)에는 정답·해설이 없고, 문항마다 무작위 번호(qid)만 있습니다.
+--    · 정답 위치와 해설은 quiz_items에만 있고, 답을 고른 뒤에야 서버가 알려 줍니다.
+--    · 랭킹전 문제는 서버가 뽑습니다. 제한 시간은 문항당 7초입니다.
+--    · 예전 함수(정답 = 0번 보기로 채점, 문제를 브라우저가 고름)는 웹페이지에서 못 쓰게 막습니다.
+--    · 집계(question_stats)와 판·랭킹 기록은 예전처럼 '문제 은행 원래 순서'(0 = 정답)로 저장합니다.
+-- =====================================================================
+create table if not exists public.quiz_items (
+  qid    text primary key check (qid ~ '^[0-9a-f]{12}$'),
+  qkey   text not null unique check (qkey ~ '^[0-9a-f]{8}$'),   -- question_stats의 문항 키
+  cat    smallint not null,
+  perm   smallint[] not null check (array_length(perm, 1) = 4), -- perm[공개 보기 번호 + 1] = 원래 보기 번호 (0 = 정답)
+  exp    text not null default '',
+  active boolean not null default true
+);
+alter table public.quiz_items enable row level security;
+revoke all on table public.quiz_items from anon, authenticated;
+
+-- 랭킹전 참가를 막을 접속 주소 (주소 자체가 아니라 해시만 저장)
+create table if not exists public.ranked_bans (
+  client_hash text primary key,
+  note        text,
+  created_at  timestamptz not null default now()
+);
+alter table public.ranked_bans enable row level security;
+revoke all on table public.ranked_bans from anon, authenticated;
+
+create or replace function public.ranked_limit(p_size integer) returns numeric
+language sql immutable as $$ select p_size * 7.0 $$;
+
+-- (내부용) 원래 보기 번호 → 공개 보기 번호
+create or replace function public.qi_pub(p_perm smallint[], p_orig integer) returns integer
+language sql immutable as $$ select array_position(p_perm, p_orig::smallint) - 1 $$;
+
+-- (내부용) 답을 고른 뒤 돌려줄 내용: 정답(공개 보기 번호), 해설, 보기별 선택 수(공개 보기 순서)
+create or replace function public.qi_reply(p_qkey text, p_saved boolean, p_choice integer default null)
+returns json
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  i public.quiz_items%rowtype;
+  s public.question_stats%rowtype;
+  a integer[] := array[0, 0, 0, 0];
+begin
+  select * into i from quiz_items where qkey = p_qkey;
+  select * into s from question_stats where qkey = p_qkey;
+  if found then a := array[s.n0, s.n1, s.n2, s.n3]; end if;
+  return json_build_object('saved', p_saved, 'correct', qi_pub(i.perm, 0), 'exp', i.exp,
+    'choice', case when p_choice is null then null else qi_pub(i.perm, p_choice) end,
+    'n', json_build_array(a[i.perm[1] + 1], a[i.perm[2] + 1], a[i.perm[3] + 1], a[i.perm[4] + 1]));
+end;
+$$;
+
+-- 일반 모드 판 시작: 공개 번호(qid) 20개
+create or replace function public.quiz_start(p_qids text[])
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_headers json := nullif(current_setting('request.headers', true), '')::json;
+  v_ip      text := trim(split_part(coalesce(v_headers ->> 'x-forwarded-for', ''), ',', 1));
+  v_hash    text := case when v_ip = '' then null else md5(v_ip || ':sangsik1000') end;
+  v_keys    text[];
+  v_id      uuid;
+begin
+  if p_qids is null or coalesce(array_length(p_qids, 1), 0) <> 20 then
+    raise exception '문항 정보가 올바르지 않습니다';
+  end if;
+  select array_agg(i.qkey order by t.ord) into v_keys
+    from unnest(p_qids) with ordinality as t(qid, ord)
+    join quiz_items i on i.qid = t.qid and i.active;
+  if coalesce(array_length(v_keys, 1), 0) <> 20 or (select count(distinct k) from unnest(v_keys) k) <> 20 then
+    raise exception '문제 은행이 바뀌었습니다. 페이지를 새로고침해 주세요';
+  end if;
+  if v_hash is not null and (select count(*) from rounds
+      where client_hash = v_hash and started_at > now() - interval '10 minutes') >= 15 then
+    raise exception '잠시 후 다시 시도해 주세요';
+  end if;
+  perform settle_stale_rounds();
+  insert into rounds (client_hash, keys) values (v_hash, v_keys) returning id into v_id;
+  return json_build_object('id', v_id);
+end;
+$$;
+
+-- 일반 모드 답 하나: p_choice는 공개 보기 번호(0~3). 판에 저장·집계한 뒤 정답과 해설을 돌려줌
+-- p_practice = true(틀린 문항 다시 풀기)면 저장·집계 없이 정답만 알려 줌
+create or replace function public.quiz_answer(p_qid text, p_choice integer, p_round uuid default null,
+                                              p_pos integer default null, p_practice boolean default false)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_headers json := nullif(current_setting('request.headers', true), '')::json;
+  v_ip      text := trim(split_part(coalesce(v_headers ->> 'x-forwarded-for', ''), ',', 1));
+  v_hash    text := case when v_ip = '' then null else md5(v_ip || ':sangsik1000') end;
+  i         public.quiz_items%rowtype;
+  rd        public.rounds%rowtype;
+  v_orig    integer;
+  v_hits    integer := 0;
+begin
+  if p_choice is null or p_choice < 0 or p_choice > 3 then
+    raise exception '보기 번호가 올바르지 않습니다';
+  end if;
+  select * into i from quiz_items where qid = p_qid and active;
+  if not found then raise exception '문제 은행이 바뀌었습니다. 페이지를 새로고침해 주세요'; end if;
+  v_orig := i.perm[p_choice + 1];
+
+  -- 같은 주소에서 1분에 60번 넘게 답을 보내면 거절 (정답을 긁어 가는 것 방지), 40번 넘으면 집계만 건너뜀
+  if v_hash is not null then
+    select count(*) into v_hits from answer_hits
+     where client_hash = v_hash and created_at > now() - interval '1 minute';
+    if v_hits >= 60 then raise exception '너무 빠르게 풀고 있습니다. 잠시 후 다시 시도해 주세요'; end if;
+    insert into answer_hits (client_hash) values (v_hash);
+    if random() < 0.02 then delete from answer_hits where created_at < now() - interval '1 hour'; end if;
+  end if;
+
+  if p_practice then return qi_reply(i.qkey, false); end if;
+
+  if p_round is not null then
+    select * into rd from rounds where id = p_round for update;
+    if not found then raise exception '판 정보를 찾을 수 없습니다'; end if;
+    if rd.ended_at is not null then raise exception '이미 끝난 판입니다'; end if;
+    if p_pos is null or p_pos < 0 or p_pos > 19 or rd.keys[p_pos + 1] <> i.qkey then
+      raise exception '문항 정보가 올바르지 않습니다';
+    end if;
+    if rd.answers[p_pos + 1] is not null then          -- 이미 답한 문항: 처음 답 유지
+      return qi_reply(i.qkey, false, rd.answers[p_pos + 1]);
+    end if;
+    update rounds set answers[p_pos + 1] = v_orig, answered = answered + 1, last_at = now() where id = p_round;
+  end if;
+
+  if v_hits < 40 then
+    insert into question_stats as s (qkey, n0, n1, n2, n3)
+    values (i.qkey, (v_orig = 0)::int, (v_orig = 1)::int, (v_orig = 2)::int, (v_orig = 3)::int)
+    on conflict (qkey) do update
+      set n0 = s.n0 + excluded.n0, n1 = s.n1 + excluded.n1,
+          n2 = s.n2 + excluded.n2, n3 = s.n3 + excluded.n3, updated_at = now();
+  end if;
+  return qi_reply(i.qkey, true);
+end;
+$$;
+
+-- 문항별 정답률: { "qid": [맞힌 수, 틀린 수], ... } (보기별 수는 공개하지 않음)
+create or replace function public.quiz_rates()
+returns json
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(json_object_agg(i.qid, json_build_array(s.n0, s.n1 + s.n2 + s.n3)), '{}'::json)
+  from quiz_items i join question_stats s on s.qkey = i.qkey
+  where i.active;
+$$;
+
+-- (내부용) 랭킹전 도전 하나의 현재 상태 (공개 번호와 공개 보기 번호로)
+create or replace function public.ranked_view(p_id uuid)
+returns json
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select json_build_object(
+    'id', r.id, 'day', r.day, 'size', r.size, 'nickname', r.nickname,
+    'qids',    (select json_agg(i.qid order by t.ord)
+                  from unnest(r.keys, r.answers) with ordinality as t(k, x, ord) left join quiz_items i on i.qkey = t.k),
+    'picks',   (select json_agg(case when t.x is null then null else qi_pub(i.perm, t.x) end order by t.ord)
+                  from unnest(r.keys, r.answers) with ordinality as t(k, x, ord) left join quiz_items i on i.qkey = t.k),
+    'correct', (select json_agg(case when t.x is null then null else qi_pub(i.perm, 0) end order by t.ord)
+                  from unnest(r.keys, r.answers) with ordinality as t(k, x, ord) left join quiz_items i on i.qkey = t.k),
+    'exps',    (select json_agg(case when t.x is null then null else i.exp end order by t.ord)
+                  from unnest(r.keys, r.answers) with ordinality as t(k, x, ord) left join quiz_items i on i.qkey = t.k),
+    'ended', r.ended_at is not null, 'score', r.score, 'seconds', r.seconds, 'limit', ranked_limit(r.size),
+    'remaining_ms', greatest(0, floor(extract(epoch from (r.deadline - now())) * 1000))::bigint)
+  from ranked_runs r
+  where r.id = p_id;
+$$;
+
+-- 랭킹전 시작: 문제는 서버가 무작위로 뽑음 (한 분야에서 10·20문항은 1개, 30·40문항은 2개까지)
+create or replace function public.ranked_begin(p_size integer, p_nickname text, p_device text)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  v_headers json := nullif(current_setting('request.headers', true), '')::json;
+  v_ip      text := trim(split_part(coalesce(v_headers ->> 'x-forwarded-for', ''), ',', 1));
+  v_hash    text := case when v_ip = '' then null else md5(v_ip || ':sangsik1000') end;
+  v_day     date := ranked_today();
+  v_nick    text := btrim(coalesce(p_nickname, ''));
+  v_keys    text[];
+  r         public.ranked_runs%rowtype;
+  v_id      uuid;
+begin
+  if p_size is null or p_size not in (10, 20, 30, 40) then
+    raise exception '문항 수가 올바르지 않습니다';
+  end if;
+  if char_length(v_nick) < 1 or char_length(v_nick) > 12 or v_nick ~ '[[:cntrl:]]' then
+    raise exception '닉네임은 1~12자로 입력해 주세요';
+  end if;
+  if p_device is null or p_device !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    raise exception '기기 정보가 올바르지 않습니다';
+  end if;
+  if v_hash is not null and exists (select 1 from ranked_bans where client_hash = v_hash) then
+    raise exception '이 접속 환경에서는 랭킹전에 참여할 수 없습니다';
+  end if;
+
+  perform ranked_settle();
+
+  select * into r from ranked_runs where day = v_day and size = p_size and device = p_device;
+  if found then
+    if r.ended_at is not null then
+      raise exception '오늘 %문항 랭킹전은 이미 도전했습니다', p_size;
+    end if;
+    return ranked_view(r.id);                       -- 진행 중인 도전 이어 풀기
+  end if;
+
+  if v_hash is not null and (select count(*) from ranked_runs
+      where day = v_day and size = p_size and client_hash = v_hash) >= 3 then
+    raise exception '같은 네트워크에서 오늘 %문항 랭킹전 도전 횟수를 넘었습니다', p_size;
+  end if;
+
+  select array_agg(qkey order by random()) into v_keys from (
+    select qkey from (
+      select qkey, row_number() over (partition by cat order by random()) as rn
+      from quiz_items where active) p
+    where rn <= case when p_size <= 20 then 1 else 2 end
+    order by random()
+    limit p_size) t;
+  if coalesce(array_length(v_keys, 1), 0) <> p_size then
+    raise exception '문제를 뽑지 못했습니다. 잠시 후 다시 시도해 주세요';
+  end if;
+
+  insert into ranked_runs (day, size, nickname, device, client_hash, keys, answers, deadline)
+  values (v_day, p_size, v_nick, p_device, v_hash, v_keys, array_fill(null::smallint, array[p_size]),
+          now() + make_interval(secs => ranked_limit(p_size)))
+  returning id into v_id;
+  return ranked_view(v_id);
+end;
+$$;
+
+-- 랭킹전 답 하나: p_choice는 공개 보기 번호. 저장·집계한 뒤 정답과 해설을 돌려줌
+create or replace function public.ranked_pick(p_round uuid, p_pos integer, p_choice integer)
+returns json
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  r      public.ranked_runs%rowtype;
+  i      public.quiz_items%rowtype;
+  v_orig integer;
+begin
+  if p_choice is null or p_choice < 0 or p_choice > 3 then
+    raise exception '보기 번호가 올바르지 않습니다';
+  end if;
+  select * into r from ranked_runs where id = p_round for update;
+  if not found then raise exception '도전 정보를 찾을 수 없습니다'; end if;
+  if r.ended_at is not null then raise exception '이미 끝난 도전입니다'; end if;
+  if now() > r.deadline + interval '2 seconds' then raise exception '제한 시간이 끝났습니다'; end if;
+  if p_pos is null or p_pos < 0 or p_pos >= r.size then raise exception '문항 정보가 올바르지 않습니다'; end if;
+  select * into i from quiz_items where qkey = r.keys[p_pos + 1];
+  if not found then raise exception '문제 은행이 바뀌었습니다. 페이지를 새로고침해 주세요'; end if;
+
+  if r.answers[p_pos + 1] is not null then
+    return qi_reply(i.qkey, false, r.answers[p_pos + 1]);
+  end if;
+  v_orig := i.perm[p_choice + 1];
+  update ranked_runs set answers[p_pos + 1] = v_orig, answered = answered + 1 where id = p_round;
+  insert into question_stats as s (qkey, n0, n1, n2, n3)
+  values (i.qkey, (v_orig = 0)::int, (v_orig = 1)::int, (v_orig = 2)::int, (v_orig = 3)::int)
+  on conflict (qkey) do update
+    set n0 = s.n0 + excluded.n0, n1 = s.n1 + excluded.n1,
+        n2 = s.n2 + excluded.n2, n3 = s.n3 + excluded.n3, updated_at = now();
+  return qi_reply(i.qkey, true);
+end;
+$$;
+
+-- 내부용 함수는 막고, 새 함수만 웹페이지에 열어 줌
+revoke all on function public.qi_pub(smallint[], integer) from public, anon, authenticated;
+revoke all on function public.qi_reply(text, boolean, integer) from public, anon, authenticated;
+revoke all on function public.ranked_view(uuid) from public, anon, authenticated;
+revoke all on function public.ranked_limit(integer) from public, anon, authenticated;
+revoke all on function public.quiz_start(text[]) from public;
+revoke all on function public.quiz_answer(text, integer, uuid, integer, boolean) from public;
+revoke all on function public.quiz_rates() from public;
+revoke all on function public.ranked_begin(integer, text, text) from public;
+revoke all on function public.ranked_pick(uuid, integer, integer) from public;
+grant execute on function public.quiz_start(text[]) to anon, authenticated;
+grant execute on function public.quiz_answer(text, integer, uuid, integer, boolean) to anon, authenticated;
+grant execute on function public.quiz_rates() to anon, authenticated;
+grant execute on function public.ranked_begin(integer, text, text) to anon, authenticated;
+grant execute on function public.ranked_pick(uuid, integer, integer) to anon, authenticated;
+
+-- 예전 함수: 정답이 0번 보기로 드러나고, 문제를 브라우저가 고를 수 있어 막음
+revoke all on function public.record_answer(text, integer, uuid, integer) from public, anon, authenticated;
+revoke all on function public.question_stats_all() from public, anon, authenticated;
+revoke all on function public.start_round(text[]) from public, anon, authenticated;
+revoke all on function public.ranked_start(integer, text, text, text[]) from public, anon, authenticated;
+revoke all on function public.ranked_answer(uuid, integer, integer) from public, anon, authenticated;

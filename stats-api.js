@@ -1,4 +1,4 @@
-// 상식 1000제 응시 통계 공통 코드 (config.js 다음에 불러옵니다)
+// 알쓸신잡 응시 통계 공통 코드 (config.js 다음에 불러옵니다)
 (function () {
   "use strict";
   var cfg = window.QUIZ_STATS || {};
@@ -54,21 +54,15 @@
     box.appendChild(bars); box.appendChild(axis);
   }
 
-  // 문항 키: 문제·정답·오답 내용으로 만든 8자리 해시 (FNV-1a 32비트).
-  // 문제나 보기를 고치면 키가 바뀌어 그 문항의 정답률은 새로 집계됩니다.
-  function qkey(row) {
-    var s = [row[1], row[2], row[3], row[4], row[5]].join("\u241F"), h = 0x811c9dc5;
-    for (var i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-    }
-    return ("0000000" + h.toString(16)).slice(-8);
-  }
-
-  // n = [정답, 오답1, 오답2, 오답3]을 고른 수 → 응답 수와 정답률(%)
+  // n = [맞힌 수, 틀린 수] → 응답 수와 정답률(%)
   function rate(n) {
     var t = (n || []).reduce(function (a, b) { return a + (b || 0); }, 0);
     return { total: t, pct: t ? n[0] / t * 100 : null };
+  }
+  // 답을 고른 뒤 서버가 준 보기별 선택 수(공개 보기 순서)와 정답 위치 → 응답 수와 정답률
+  function rateOf(n, correct) {
+    var t = (n || []).reduce(function (a, b) { return a + (b || 0); }, 0);
+    return { total: t, pct: t ? (n[correct] || 0) / t * 100 : null };
   }
 
   function fmtSec(v) { return Number(v).toFixed(1) + "초"; }
@@ -101,15 +95,16 @@
     enabled: !!(url && key),
     stats: function () { return call("score_stats"); },
     // 판 단위 기록: 시작할 때 판 번호를 받고, 답마다 그 판에 저장, 끝나면 서버가 점수를 계산
-    startRound: function (keys) { return call("start_round", { p_keys: keys }).then(function (r) { return r && r.id; }); },
+    // 정답은 서버에만 있습니다: 답(공개 보기 번호)을 보내면 서버가 채점하고 정답·해설을 돌려줌
+    startRound: function (qids) { return call("quiz_start", { p_qids: qids }).then(function (r) { return r && r.id; }); },
     endRound: function (round, quit) { return call("end_round", { p_round: round, p_quit: !!quit }); },
     rank: rank,
     leaderboard: leaderboard,
     fmtSec: fmtSec,
-    rankedStart: function (size, nick, device, keys) {
-      return call("ranked_start", { p_size: size, p_nickname: nick, p_device: device, p_keys: keys });
+    rankedStart: function (size, nick, device) {        // 문제는 서버가 뽑음
+      return call("ranked_begin", { p_size: size, p_nickname: nick, p_device: device });
     },
-    rankedAnswer: function (round, pos, choice) { return call("ranked_answer", { p_round: round, p_pos: pos, p_choice: choice }); },
+    rankedAnswer: function (round, pos, choice) { return call("ranked_pick", { p_round: round, p_pos: pos, p_choice: choice }); },
     rankedEnd: function (round) { return call("ranked_end", { p_round: round }); },
     rankedBoard: function (size, limit) {
       var body = { p_size: size }; if (limit) body.p_limit = limit;
@@ -118,14 +113,15 @@
     rankedStatus: function (device) { return call("ranked_status", { p_device: device }); },
     fmtTop: fmtTop,
     histogram: histogram,
-    qkey: qkey,
     rate: rate,
-    answer: function (key, choice, round, pos) {
-      var body = { p_key: key, p_choice: choice };
+    rateOf: rateOf,
+    answer: function (qid, choice, round, pos, practice) {
+      var body = { p_qid: qid, p_choice: choice };
       if (round) { body.p_round = round; body.p_pos = pos; }
-      return call("record_answer", body);
+      if (practice) body.p_practice = true;
+      return call("quiz_answer", body);
     },
-    questionStats: function () { return call("question_stats_all"); },
+    questionStats: function () { return call("quiz_rates"); },   // {qid: [맞힌 수, 틀린 수]}
     rankOf: function (score, seconds, abandoned) {
       return call("score_rank", { p_score: score, p_seconds: seconds, p_abandoned: !!abandoned });
     }
